@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
@@ -19,109 +20,179 @@ _GENERIC_HINT = ("Collect the complete current report, failed stage and availabl
                  "$AMAGINE3D_RUNTIME_DIR/references/error-diagnostics.md#triage.")
 
 
+@dataclass(frozen=True)
+class _HintRule:
+    route: str
+    action: str
+
+
+_BOOLEAN_GUIDE = "references/operations/booleans.md#"
+_FINISHING_GUIDE = "references/operations/finishing.md#"
+_DECLARATION_RULE = _HintRule(
+    _DIAGNOSTIC_GUIDES + "#declaration-and-binding-errors",
+    "Repair the Agent-authored source or declaration using ruleId, field, owner and actual/expected values.",
+)
+_FIXED_HINT_RULES = {
+    "SOURCE.CUT_MISSED_OWNER": _HintRule(
+        _BOOLEAN_GUIDE + "cut-missed-its-owner",
+        "Compare owner and cutter frames, then inspect removed-volume and boolean-witness evidence.",
+    ),
+    "SOURCE.CHECKED_CUT_FAILED": _HintRule(
+        _BOOLEAN_GUIDE + "boolean-execution-failed",
+        "Validate owner/tool inputs and inspect the operation log before isolating the cut.",
+    ),
+    "SOURCE.UNION_DISCONNECTED": _HintRule(
+        _BOOLEAN_GUIDE + "union-disconnected",
+        "Inspect component count and witness gap/nearest-point evidence against the intended owner.",
+    ),
+    "SOURCE.CHECKED_UNION_FAILED": _HintRule(
+        _BOOLEAN_GUIDE + "boolean-execution-failed",
+        "Validate body/addition inputs and inspect the operation log before isolating the union.",
+    ),
+    "DESIGN.SELECTION_EMPTY": _HintRule(
+        _FINISHING_GUIDE + "dsl-selection-or-finishing-failure",
+        "Read the current node, edges.where/edges.of and candidate evidence; preserve the requested size.",
+    ),
+    "DESIGN.SELECTION_COUNT": _HintRule(
+        _FINISHING_GUIDE + "dsl-selection-or-finishing-failure",
+        "Compare actual.count, expected and current node candidates; do not change the expected count merely to pass.",
+    ),
+    "DESIGN.REVISION_CONFLICT": _HintRule(
+        _DIAGNOSTIC_GUIDES + "#revision-and-stale-evidence",
+        "Read the current revision and affected nodes, then apply the edit against that revision.",
+    ),
+    "SOURCE.PREFLIGHT_FAILED": _HintRule(
+        _DIAGNOSTIC_GUIDES + "#declaration-and-binding-errors",
+        "Repair the Agent-authored source or declaration at the named field, preserving its rule and target.",
+    ),
+    "DRAFT.TIMEOUT": _HintRule(
+        _DIAGNOSTIC_GUIDES + "#timeouts-and-unknown-errors",
+        "Read the current attempt, failed stage and logs; preserve input bindings.",
+    ),
+    "DRAFT.INCOMPLETE": _HintRule(
+        _DIAGNOSTIC_GUIDES + "#timeouts-and-unknown-errors",
+        "Read the current attempt, failed stage and logs; preserve input bindings.",
+    ),
+}
+_FINISHING_CODES = {"SOURCE.CHECKED_FILLET_FAILED", "SOURCE.CHECKED_CHAMFER_FAILED"}
+_DESIGN_WRAPPER_CODES = {"DESIGN.KERNEL_FAILED", "DESIGN.POSTCONDITION_FAILED"}
+_DECLARATION_PREFIXES = ("DESIGN.BINDING_", "DESIGN.OWNERSHIP")
+_CAD_STAGE_PREFIXES = ("CAD.", "DISPLAY.", "VISUAL.")
+_CAD_STAGE_RULE = _HintRule(
+    _DIAGNOSTIC_GUIDES + "#cad-and-display-failures",
+    "Inspect the bound stage and source evidence; use its recovery instructions without inferring acceptance.",
+)
+_GENERIC_WRAPPER_RULE = _HintRule(
+    _DIAGNOSTIC_GUIDES + "#timeouts-and-unknown-errors",
+    "Read node, op, field and concrete source issues; do not infer a kernel cause from the wrapper.",
+)
+_CAD_STAGE_ACTIONS = {
+    "cadExport": "Inspect the bound CAD export and source evidence; do not treat export success as manufacturing acceptance.",
+    "preview": "Inspect preview bindings; reuse passed manufacturing checks only when their current bindings verify.",
+}
+_DEFAULT_CAD_STAGE_ACTION = "Inspect the bound CAD export and input artifacts before retrying this display stage."
+_DESIGN_OPERATION_RULES = {
+    **dict.fromkeys(
+        ("fillet", "chamfer"),
+        _HintRule(
+            _FINISHING_GUIDE + "dsl-selection-or-finishing-failure",
+            _GENERIC_WRAPPER_RULE.action,
+        ),
+    ),
+    **dict.fromkeys(
+        ("cut", "subtract", "difference", "union", "add"),
+        _HintRule(
+            _BOOLEAN_GUIDE + "boolean-execution-failed",
+            _GENERIC_WRAPPER_RULE.action,
+        ),
+    ),
+}
+
+
+def _evidence_map(issue: Mapping[str, Any], field: str) -> Mapping[str, Any]:
+    value = issue.get(field)
+    return value if isinstance(value, Mapping) else {}
+
+
+def _finishing_hint_rule(observed: Mapping[str, Any]) -> _HintRule | None:
+    if type(observed.get("selectedEdgeCount")) is int and observed["selectedEdgeCount"] == 0:
+        return _HintRule(
+            _FINISHING_GUIDE + "python-selector-found-no-edges",
+            "Enumerate edge candidates and verify the source selector; do not change the requested radius or length.",
+        )
+    if isinstance(observed.get("attempts"), list) and observed["attempts"]:
+        return _HintRule(
+            _FINISHING_GUIDE + "python-finishing-execution-failed",
+            "Inspect attempts and selected local topology; explore parameters only within unchanged requirements.",
+        )
+    return None
+
+
+def _design_wrapper_rule(issue: Mapping[str, Any]) -> _HintRule:
+    op = issue.get("op")
+    if not isinstance(op, str) and isinstance(issue.get("details"), Mapping):
+        op = issue["details"].get("op")
+    check = issue.get("check")
+    if not isinstance(op, str) and isinstance(check, str) and check.lower() in {"fillet", "chamfer", "cut", "union"}:
+        op = check.lower()
+    return _DESIGN_OPERATION_RULES.get(op.lower(), _GENERIC_WRAPPER_RULE) if isinstance(op, str) else _GENERIC_WRAPPER_RULE
+
+
+def _selection_count_rule(actual: Mapping[str, Any]) -> _HintRule:
+    count = actual.get("count")
+    if type(count) is int:
+        action = f"Compare actual.count={count} with expected and current node candidates; do not change expected merely to pass."
+        return _HintRule(_FIXED_HINT_RULES["DESIGN.SELECTION_COUNT"].route, action)
+    return _FIXED_HINT_RULES["DESIGN.SELECTION_COUNT"]
+
+
+def _declaration_rule(issue: Mapping[str, Any]) -> _HintRule:
+    rule_id = issue.get("ruleId")
+    if isinstance(rule_id, str) and rule_id:
+        action = _DECLARATION_RULE.action + " Start with ruleId " + rule_id + "."
+        return _HintRule(_DECLARATION_RULE.route, action)
+    return _DECLARATION_RULE
+
+
+def _cad_stage_rule(issue: Mapping[str, Any]) -> _HintRule:
+    stage = issue.get("stage")
+    if not isinstance(stage, str) or stage not in {"cadExport", "tessellation", "display", "preview"}:
+        return _CAD_STAGE_RULE
+    action = _CAD_STAGE_ACTIONS.get(stage, _DEFAULT_CAD_STAGE_ACTION)
+    return _HintRule(_CAD_STAGE_RULE.route, action)
+
+
+def _hint_rule(
+    issue: Mapping[str, Any],
+    code: str,
+    observed: Mapping[str, Any],
+    actual: Mapping[str, Any],
+) -> _HintRule | None:
+    if code in _FINISHING_CODES:
+        return _finishing_hint_rule(observed)
+    if code in _DESIGN_WRAPPER_CODES:
+        return _design_wrapper_rule(issue)
+    if code == "AUTHORING.INVALID":
+        return _declaration_rule(issue)
+    if code.startswith(_DECLARATION_PREFIXES):
+        return _declaration_rule(issue)
+    if code.startswith(_CAD_STAGE_PREFIXES):
+        return _cad_stage_rule(issue)
+    if code in _FIXED_HINT_RULES:
+        rule = _FIXED_HINT_RULES[code]
+        return _selection_count_rule(actual) if code == "DESIGN.SELECTION_COUNT" else rule
+    return None
+
+
 def repair_hint_for_issue(issue: Mapping[str, Any]) -> str | None:
     """Return a guide route for a known structured issue, without guessing causes."""
     code = issue.get("code")
     if not isinstance(code, str):
         return None
-    observed = issue.get("observed")
-    if not isinstance(observed, Mapping):
-        observed = {}
-    actual = issue.get("actual")
-    if not isinstance(actual, Mapping):
-        actual = {}
-
-    route = None
-    if code in {"SOURCE.CUT_MISSED_OWNER", "SOURCE.CHECKED_CUT_FAILED",
-                "SOURCE.UNION_DISCONNECTED", "SOURCE.CHECKED_UNION_FAILED"}:
-        section = {
-            "SOURCE.CUT_MISSED_OWNER": "cut-missed-its-owner",
-            "SOURCE.CHECKED_CUT_FAILED": "boolean-execution-failed",
-            "SOURCE.UNION_DISCONNECTED": "union-disconnected",
-            "SOURCE.CHECKED_UNION_FAILED": "boolean-execution-failed",
-        }[code]
-        route = f"references/operations/booleans.md#{section}"
-    elif code in {"SOURCE.CHECKED_FILLET_FAILED", "SOURCE.CHECKED_CHAMFER_FAILED"}:
-        selected = observed.get("selectedEdgeCount")
-        if type(selected) is int and selected == 0:
-            route = "references/operations/finishing.md#python-selector-found-no-edges"
-        elif isinstance(observed.get("attempts"), list) and observed["attempts"]:
-            route = "references/operations/finishing.md#python-finishing-execution-failed"
-    elif code in {"DESIGN.SELECTION_EMPTY", "DESIGN.SELECTION_COUNT"}:
-        route = "references/operations/finishing.md#dsl-selection-or-finishing-failure"
-    elif code in {"DESIGN.KERNEL_FAILED", "DESIGN.POSTCONDITION_FAILED"}:
-        op = issue.get("op")
-        if not isinstance(op, str) and isinstance(issue.get("details"), Mapping):
-            op = issue["details"].get("op")
-        check = issue.get("check")
-        if not isinstance(op, str) and isinstance(check, str) and check.lower() in {"fillet", "chamfer", "cut", "union"}:
-            op = check.lower()
-        if isinstance(op, str) and op.lower() in {"fillet", "chamfer"}:
-            route = "references/operations/finishing.md#dsl-selection-or-finishing-failure"
-        elif isinstance(op, str) and op.lower() in {"cut", "subtract", "difference"}:
-            route = "references/operations/booleans.md#boolean-execution-failed"
-        elif isinstance(op, str) and op.lower() in {"union", "add"}:
-            route = "references/operations/booleans.md#boolean-execution-failed"
-        else:
-            route = _DIAGNOSTIC_GUIDES + "#timeouts-and-unknown-errors"
-    elif code == "AUTHORING.INVALID" or code.startswith("DESIGN.BINDING_") or code.startswith("DESIGN.OWNERSHIP"):
-        route = _DIAGNOSTIC_GUIDES + "#declaration-and-binding-errors"
-    elif code == "DESIGN.REVISION_CONFLICT":
-        route = _DIAGNOSTIC_GUIDES + "#revision-and-stale-evidence"
-    elif code == "SOURCE.PREFLIGHT_FAILED":
-        route = _DIAGNOSTIC_GUIDES + "#declaration-and-binding-errors"
-    elif code.startswith(("CAD.", "DISPLAY.", "VISUAL.")):
-        route = _DIAGNOSTIC_GUIDES + "#cad-and-display-failures"
-    elif code in {"DRAFT.TIMEOUT", "DRAFT.INCOMPLETE"}:
-        route = _DIAGNOSTIC_GUIDES + "#timeouts-and-unknown-errors"
-
-    if route is None:
+    rule = _hint_rule(issue, code, _evidence_map(issue, "observed"), _evidence_map(issue, "actual"))
+    if rule is None:
         return None
-    actions = {
-        "SOURCE.CUT_MISSED_OWNER": "Compare owner and cutter frames, then inspect removed-volume and boolean-witness evidence.",
-        "SOURCE.CHECKED_CUT_FAILED": "Validate owner/tool inputs and inspect the operation log before isolating the cut.",
-        "SOURCE.UNION_DISCONNECTED": "Inspect component count and witness gap/nearest-point evidence against the intended owner.",
-        "SOURCE.CHECKED_UNION_FAILED": "Validate body/addition inputs and inspect the operation log before isolating the union.",
-        "SOURCE.CHECKED_FILLET_FAILED": "Check selector and selected-edge count first; do not change the requested radius to silence failure.",
-        "SOURCE.CHECKED_CHAMFER_FAILED": "Check selector and selected-edge count first; do not change the requested length to silence failure.",
-        "DESIGN.SELECTION_EMPTY": "Read the current node, edges.where/edges.of and candidate evidence; preserve the requested size.",
-        "DESIGN.SELECTION_COUNT": "Compare actual.count, expected and current node candidates; do not change the expected count merely to pass.",
-    }
-    action = actions.get(code)
-    if code in {"SOURCE.CHECKED_FILLET_FAILED", "SOURCE.CHECKED_CHAMFER_FAILED"}:
-        selected, attempts = observed.get("selectedEdgeCount"), observed.get("attempts")
-        if type(selected) is int and selected == 0:
-            action = "Enumerate edge candidates and verify the source selector; do not change the requested radius or length."
-        elif isinstance(attempts, list) and attempts:
-            action = "Inspect attempts and selected local topology; explore parameters only within unchanged requirements."
-        else:
-            return None
-    if code in {"DESIGN.KERNEL_FAILED", "DESIGN.POSTCONDITION_FAILED"}:
-        action = "Read node, op, field and concrete source issues; do not infer a kernel cause from the wrapper."
-    elif code == "DESIGN.SELECTION_COUNT" and type(actual.get("count")) is int:
-        action = f"Compare actual.count={actual['count']} with expected and current node candidates; do not change expected merely to pass."
-    if code.startswith("AUTHORING.") or code.startswith("DESIGN.BINDING_") or code.startswith("DESIGN.OWNERSHIP"):
-        action = "Repair the Agent-authored source or declaration using ruleId, field, owner and actual/expected values."
-        rule_id = issue.get("ruleId")
-        if isinstance(rule_id, str) and rule_id:
-            action += " Start with ruleId " + rule_id + "."
-    elif code == "DESIGN.REVISION_CONFLICT":
-        action = "Read the current revision and affected nodes, then apply the edit against that revision."
-    elif code == "SOURCE.PREFLIGHT_FAILED":
-        action = "Repair the Agent-authored source or declaration at the named field, preserving its rule and target."
-    elif code.startswith(("CAD.", "DISPLAY.", "VISUAL.")):
-        stage = issue.get("stage")
-        if isinstance(stage, str) and stage in {"cadExport", "tessellation", "display", "preview"}:
-            action = "Inspect the bound CAD export and input artifacts before retrying this display stage."
-            if stage == "cadExport":
-                action = "Inspect the bound CAD export and source evidence; do not treat export success as manufacturing acceptance."
-            elif stage == "preview":
-                action = "Inspect preview bindings; reuse passed manufacturing checks only when their current bindings verify."
-        else:
-            action = "Inspect the bound stage and source evidence; use its recovery instructions without inferring acceptance."
-    elif code in {"DRAFT.TIMEOUT", "DRAFT.INCOMPLETE"}:
-        action = "Read the current attempt, failed stage and logs; preserve input bindings."
-    return (action or "Inspect the reported structured evidence and verify the next check.") + " Read $AMAGINE3D_RUNTIME_DIR/" + route
+    return rule.action + " Read $AMAGINE3D_RUNTIME_DIR/" + rule.route
 
 
 def api_error_repair_hint(error: Any) -> str:

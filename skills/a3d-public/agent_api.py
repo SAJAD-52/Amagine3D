@@ -617,7 +617,13 @@ def build(root: Path, args: dict) -> dict:
         if diagnostics.exists():
             detail = json.loads(diagnostics.read_text(encoding="utf-8"))
             from cad_diagnostics import add_repair_hint, generic_diagnostic_hint
-            result.setdefault("issues", []).extend(add_repair_hint({"stage": "design", **issue, "designRevision": design_info["revision"]}, generic_diagnostic_hint()) for issue in detail["issues"])
+            result.setdefault("issues", []).extend(
+                add_repair_hint(
+                    {"stage": "design", **issue, "designRevision": design_info["revision"]},
+                    generic_diagnostic_hint(),
+                )
+                for issue in detail["issues"]
+            )
             result["designEvidence"] = detail["evidence"]
             result.update(status="failed", **{"pass": False})
         evidence = source.with_name("node-evidence.json")

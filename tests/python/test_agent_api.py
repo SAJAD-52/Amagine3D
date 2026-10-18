@@ -206,14 +206,22 @@ class AgentOperationsTests(unittest.TestCase):
         self.assertFalse(rejected.get("reused", False))
 
     def test_api_error_preserves_producer_hint_and_adds_request_route_when_missing(self):
-        with mock.patch.object(agent_api, "dispatch", side_effect=agent_api.RequestError(
-                "bad request", repairHint="Specific producer advice.")), \
-             mock.patch("sys.argv", ["a3d-agent", "validate", "{}"]), \
-             contextlib.redirect_stdout(io.StringIO()) as output:
-            self.assertEqual(agent_api.main(), 2)
-        response = json.loads(output.getvalue())
-        self.assertEqual(response["status"], "api-error")
-        self.assertEqual(response["error"]["repairHint"], "Specific producer advice.")
+        for details, expected in (
+            ({"repairHint": "Specific producer advice."}, "Specific producer advice."),
+            ({}, "$AMAGINE3D_RUNTIME_DIR/references/error-diagnostics.md#request-errors"),
+            ({"repairHint": "   "}, "$AMAGINE3D_RUNTIME_DIR/references/error-diagnostics.md#request-errors"),
+        ):
+            with self.subTest(details=details), \
+                 mock.patch.object(agent_api, "dispatch", side_effect=agent_api.RequestError("bad request", **details)), \
+                 mock.patch("sys.argv", ["a3d-agent", "validate", "{}"]), \
+                 contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(agent_api.main(), 2)
+            response = json.loads(output.getvalue())
+            self.assertEqual(response["status"], "api-error")
+            if details.get("repairHint", "").strip():
+                self.assertEqual(response["error"]["repairHint"], expected)
+            else:
+                self.assertIn(expected, response["error"]["repairHint"])
 
     def test_another_designs_draft_and_failure_cannot_route_current_recovery(self):
         from tests.python.test_design_language import box_design

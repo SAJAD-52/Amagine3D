@@ -27,15 +27,23 @@ def write(path, document):
 
 def stage_issue(error, phase):
     issue = dict(getattr(error, "issue", {}))
-    issue.setdefault("code", {"cadExport": "CAD.STEP_EXPORT_FAILED", "tessellation": "DISPLAY.MESH_FAILED",
-                              "display": "DISPLAY.EXPORT_FAILED", "preview": "DISPLAY.PREVIEW_FAILED"}.get(phase, "CAD.GEOMETRY_FAILED"))
+    phase_codes = {
+        "cadExport": "CAD.STEP_EXPORT_FAILED",
+        "tessellation": "DISPLAY.MESH_FAILED",
+        "display": "DISPLAY.EXPORT_FAILED",
+        "preview": "DISPLAY.PREVIEW_FAILED",
+    }
+    issue.setdefault("code", phase_codes.get(phase, "CAD.GEOMETRY_FAILED"))
     issue.setdefault("message", str(error))
     issue.setdefault("stage", phase)
     issue.setdefault("severity", "error")
     from cad_diagnostics import add_repair_hint
-    fallback = ("For a draft, export_draft(parts) requires valid positive-volume BRep solids." if phase == "geometry"
-                else "Inspect the bound CAD export and source evidence." if phase == "cadExport"
-                else "Inspect the bound CAD stage and local display issue; retry display from unchanged CAD geometry.")
+    if phase == "geometry":
+        fallback = "For a draft, export_draft(parts) requires valid positive-volume BRep solids."
+    elif phase == "cadExport":
+        fallback = "Inspect the bound CAD export and source evidence."
+    else:
+        fallback = "Inspect the bound CAD stage and local display issue; retry display from unchanged CAD geometry."
     issue = add_repair_hint(issue, fallback)
     return issue
 
