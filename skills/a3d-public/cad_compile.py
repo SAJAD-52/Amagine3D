@@ -931,78 +931,89 @@ def _short_message(value: Any) -> str:
     return message[:head] + "\n…\n" + message[-(MAX_MESSAGE_CHARS - head - 3):]
 
 
+_INSTALLATION_REPAIR_HINT = (
+    "Compare the named component/path witness with the final receiving part "
+    "in their shared assembly frame. Correct the aperture, support, retention "
+    "or insertion geometry for the required behavior; keep witnesses faithful "
+    "to the component and do not drop declared checks to clear the failure."
+)
+_REPAIR_HINT_PREFIXES = (
+    (
+        "CONTRACT.INTENT",
+        "Preserve the recorded target and repair its declared contract fields. "
+        "For a real target change, link the prior intent and record the request "
+        "or external evidence; do not change targets to match a failed build.",
+    ),
+    (
+        "CONTRACT.SCENE",
+        "Correct the mutable scene implementation while preserving every "
+        "immutable intent target, owner, landmark, and representation master.",
+    ),
+    (
+        "AUTHORING.",
+        "Fix the named field in the Agent-authored source or declaration to "
+        "match its stated rule, legal values, or range, and keep every "
+        "immutable intent target; do not relax the check or edit targets to pass.",
+    ),
+    (
+        "SOURCE.",
+        "Repair the Agent-authored source at the failing construct; preserve "
+        "the immutable intent and each declared representation master.",
+    ),
+    (
+        "BACKEND.",
+        "Repair the canonical source geometry identified by the compiler; "
+        "preserve user-visible form, dimensions, interfaces, and part ownership.",
+    ),
+    (
+        "BUILD.",
+        "Regenerate evidence through the owning exporter/compiler; do not "
+        "hand-edit reports, hashes, geometry facts, or transforms.",
+    ),
+    (
+        "INTERFACE.",
+        "Repair the named interface from its intent clearance, engagement, "
+        "axis, feature ownership, and actual geometry evidence; do not insert "
+        "product-specific fallback dimensions.",
+    ),
+    (
+        "QA.",
+        "Review the named physical part/check at its modeling source; preserve "
+        "identity and function, and never simplify or scale geometry merely to pass QA.",
+    ),
+    (
+        "VISUAL.",
+        "Regenerate display evidence from the same physical master and render "
+        "again; do not substitute an independently modeled visual proxy.",
+    ),
+    (
+        "FRESHNESS.",
+        "Regenerate stale artifacts from current canonical inputs and rerun "
+        "their checks; never touch timestamps or hashes merely to pass freshness.",
+    ),
+    (
+        "CONFIG.",
+        "Correct the declared session-local path or option and rerun the same build.",
+    ),
+    (
+        "COMPILE.",
+        "Use the reported stage evidence to remove avoidable retries or split an "
+        "oversized build; do not weaken geometry or QA to fit the time budget.",
+    ),
+)
+_DEFAULT_REPAIR_HINT = (
+    "Inspect the full compile log and repair the infrastructure failure; do "
+    "not alter geometry merely to hide an internal error."
+)
+
+
 def _repair_hint(code: str) -> str:
-    if code.startswith("CONTRACT.INTENT"):
-        return (
-            "Preserve the recorded target and repair its declared contract fields. "
-            "For a real target change, link the prior intent and record the request "
-            "or external evidence; do not change targets to match a failed build."
-        )
-    if code.startswith("CONTRACT.SCENE"):
-        return (
-            "Correct the mutable scene implementation while preserving every "
-            "immutable intent target, owner, landmark, and representation master."
-        )
-    if code.startswith("AUTHORING."):
-        return (
-            "Fix the named field in the Agent-authored source or declaration to "
-            "match its stated rule, legal values, or range, and keep every "
-            "immutable intent target; do not relax the check or edit targets to pass."
-        )
-    if code.startswith("SOURCE."):
-        return (
-            "Repair the Agent-authored source at the failing construct; preserve "
-            "the immutable intent and each declared representation master."
-        )
-    if code.startswith("BACKEND."):
-        return (
-            "Repair the canonical source geometry identified by the compiler; "
-            "preserve user-visible form, dimensions, interfaces, and part ownership."
-        )
-    if code.startswith("BUILD."):
-        return (
-            "Regenerate evidence through the owning exporter/compiler; do not "
-            "hand-edit reports, hashes, geometry facts, or transforms."
-        )
-    if code.startswith("INTERFACE."):
-        return (
-            "Repair the named interface from its intent clearance, engagement, "
-            "axis, feature ownership, and actual geometry evidence; do not insert "
-            "product-specific fallback dimensions."
-        )
     if code == "QA.INSTALLATION_FAILED":
-        return (
-            "Compare the named component/path witness with the final receiving part "
-            "in their shared assembly frame. Correct the aperture, support, retention "
-            "or insertion geometry for the required behavior; keep witnesses faithful "
-            "to the component and do not drop declared checks to clear the failure."
-        )
-    if code.startswith("QA."):
-        return (
-            "Review the named physical part/check at its modeling source; preserve "
-            "identity and function, and never simplify or scale geometry merely to pass QA."
-        )
-    if code.startswith("VISUAL."):
-        return (
-            "Regenerate display evidence from the same physical master and render "
-            "again; do not substitute an independently modeled visual proxy."
-        )
-    if code.startswith("FRESHNESS."):
-        return (
-            "Regenerate stale artifacts from current canonical inputs and rerun "
-            "their checks; never touch timestamps or hashes merely to pass freshness."
-        )
-    if code.startswith("CONFIG."):
-        return "Correct the declared session-local path or option and rerun the same build."
-    if code.startswith("COMPILE."):
-        return (
-            "Use the reported stage evidence to remove avoidable retries or split an "
-            "oversized build; do not weaken geometry or QA to fit the time budget."
-        )
-    return (
-        "Inspect the full compile log and repair the infrastructure failure; do "
-        "not alter geometry merely to hide an internal error."
-    )
+        return _INSTALLATION_REPAIR_HINT
+    for prefix, hint in _REPAIR_HINT_PREFIXES:
+        if code.startswith(prefix):
+            return hint
+    return _DEFAULT_REPAIR_HINT
 
 
 def _issue(
@@ -1036,7 +1047,6 @@ def _issue(
     issue = {
         "code": code,
         "message": str(message).strip() or "unspecified failure",
-        "repairHint": repair_hint or _repair_hint(code),
         "severity": severity,
         "stage": stage,
     }
@@ -1075,6 +1085,17 @@ def _issue(
     for key, value in (details or {}).items():
         if key in detail_fields:
             issue[key] = value
+    if repair_hint:
+        issue["repairHint"] = repair_hint
+    else:
+        from cad_diagnostics import generic_diagnostic_hint, repair_hint_for_issue
+        route = repair_hint_for_issue(issue)
+        if route is not None:
+            issue["repairHint"] = route
+        else:
+            issue["repairHint"] = _repair_hint(code)
+            if code.startswith(("AUTHORING.", "SOURCE.", "DESIGN.", "INTERNAL.", "UNKNOWN.")):
+                issue["repairHint"] += " " + generic_diagnostic_hint()
     # Context limits belong to the terminal projection, never the saved evidence.
     result["issues"].append(issue)
 

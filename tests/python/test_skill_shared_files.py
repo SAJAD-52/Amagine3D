@@ -17,6 +17,35 @@ COLOR = PUBLIC / "color"
 
 
 class SharedSkillFileTests(unittest.TestCase):
+    def test_diagnostic_hint_routes_point_to_existing_sections(self):
+        if str(PUBLIC) not in sys.path:
+            sys.path.insert(0, str(PUBLIC))
+        import cad_diagnostics
+        samples = [
+            {"code": "SOURCE.CUT_MISSED_OWNER"},
+            {"code": "SOURCE.UNION_DISCONNECTED"},
+            {"code": "SOURCE.CHECKED_FILLET_FAILED", "observed": {"selectedEdgeCount": 0}},
+            {"code": "SOURCE.CHECKED_FILLET_FAILED", "observed": {"attempts": [1]}},
+            {"code": "DESIGN.SELECTION_EMPTY", "actual": {"count": 0}},
+            {"code": "DESIGN.SELECTION_COUNT", "actual": {"count": 1}},
+            {"code": "AUTHORING.INVALID", "ruleId": "field-rule"},
+            {"code": "SOURCE.PREFLIGHT_FAILED"},
+            {"code": "DRAFT.TIMEOUT"},
+            {"code": "DRAFT.INCOMPLETE"},
+            {"code": "DESIGN.REVISION_CONFLICT"},
+            {"code": "DISPLAY.PREVIEW_FAILED", "stage": "preview"},
+            {"code": "DESIGN.KERNEL_FAILED"},
+        ]
+        for issue in samples:
+            hint = cad_diagnostics.repair_hint_for_issue(issue)
+            self.assertIsNotNone(hint, issue)
+            relative = hint.split("$AMAGINE3D_RUNTIME_DIR/", 1)[1].split(";", 1)[0]
+            guide, _, anchor = relative.partition("#")
+            document = (PUBLIC / guide).read_text(encoding="utf-8")
+            headings = {re.sub(r"[^a-z0-9 -]", "", line[3:].lower()).strip().replace(" ", "-")
+                        for line in document.splitlines() if line.startswith("## ")}
+            self.assertIn(anchor, headings, hint)
+
     def test_shared_runtime_is_not_a_third_skill(self):
         self.assertTrue((PUBLIC / "cad_compile.py").is_file())
         self.assertTrue((PUBLIC / "build_session.py").is_file())

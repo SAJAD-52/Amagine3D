@@ -116,6 +116,22 @@ export_draft({'body': Box(10, 10, 10)})
         self.assertNotIn("BuildSession", result["issues"][0]["repairHint"])
         self.assertTrue(import_step(result["artifacts"]["step"]["path"]).is_valid)
 
+    def test_invalid_empty_source_diagnostics_without_manifest_keeps_incomplete_route(self):
+        self.source("""import os
+from pathlib import Path
+Path(os.environ["AMAGINE3D_SOURCE_DIAGNOSTICS_PATH"]).write_text("{}")
+""")
+        command = self.cli("draft", "draft.py")
+        result = json.loads(command.stdout)
+        self.assertEqual(command.returncode, 1, command.stdout + command.stderr)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["issues"][0]["code"], "DRAFT.INCOMPLETE")
+        self.assertEqual(result["artifacts"], {})
+        self.assertIn(
+            "error-diagnostics.md#timeouts-and-unknown-errors",
+            result["issues"][0]["repairHint"],
+        )
+
     def test_step_writer_false_is_not_a_ready_cad_file(self):
         self.source("""import build123d
 build123d.export_step = lambda *args, **kwargs: False
@@ -135,7 +151,7 @@ export_draft({'body': build123d.Box(10, 10, 10)})
         self.assertEqual(command.returncode, 1, command.stdout + command.stderr)
         result = json.loads(command.stdout)
         self.assertEqual(result["issues"][0]["code"], "DRAFT.TIMEOUT")
-        self.assertNotIn("repairHint", result["issues"][0])
+        self.assertIn("error-diagnostics.md#timeouts-and-unknown-errors", result["issues"][0]["repairHint"])
         self.assertNotIn("detail", result["issues"][0])
         self.assertNotIn("deliveryReady", result)
         self.assertEqual(result["artifacts"], {})
@@ -218,7 +234,7 @@ p.write_text(json.dumps(data))
                 result = json.loads(command.stdout)
                 self.assertEqual(command.returncode, 1)
                 self.assertEqual(result["issues"][0]["code"], "DRAFT.INCOMPLETE")
-                self.assertNotIn("repairHint", result["issues"][0])
+                self.assertIn("error-diagnostics.md#", result["issues"][0]["repairHint"])
                 self.assertEqual(set(result["artifacts"]), {"step"})
                 self.assertEqual(result["artifactStages"]["cadExport"]["status"], "passed")
                 self.assertNotIn("constructionFeatures", result)

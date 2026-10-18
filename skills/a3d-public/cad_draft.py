@@ -21,7 +21,7 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 from cad_compile import CommandRunner, ConfigurationError, _positive_timeout, _workspace_path, _write_json
-from cad_diagnostics import SOURCE_DIAGNOSTICS_SCHEMA
+from cad_diagnostics import SOURCE_DIAGNOSTICS_SCHEMA, add_repair_hint, generic_diagnostic_hint
 
 
 DRAFT_SCHEMA = "a3d-draft-result/v2"
@@ -244,11 +244,14 @@ def run_draft(source: Path, *, workspace: Path, timeout_seconds: float = 120.0,
     if command.timed_out or command.returncode != 0 or source_issues or "diagnosticWarning" in result:
         issue = {"code": "DRAFT.TIMEOUT" if command.timed_out else "DRAFT.SOURCE_FAILED" if command.returncode != 0 or source_issues else "DRAFT.INCOMPLETE",
                  "message": "draft exceeded its deadline" if command.timed_out else result.get("diagnosticWarning", "draft source failed; inspect draft.log")}
-        if not command.timed_out:
-            issue.update(detail=command.output_tail[-1600:], repairHint=SOURCE_GUIDANCE)
         if source_issues:
             result["issues"].extend(source_issues)
-            issue["repairHint"] = "Use the source diagnostic measurements to repair the geometry."
+            issue["repairHint"] = "Use the source diagnostic measurements to repair the geometry. " + generic_diagnostic_hint()
+        else:
+            fallback = generic_diagnostic_hint() if command.timed_out else SOURCE_GUIDANCE
+            issue = add_repair_hint(issue, fallback)
+        if not command.timed_out:
+            issue.update(detail=command.output_tail[-1600:])
         if cad_document and cad_document["issues"] and not command.timed_out:
             result["issues"].extend(cad_document["issues"])
         else:
@@ -288,7 +291,9 @@ def run_draft(source: Path, *, workspace: Path, timeout_seconds: float = 120.0,
         except (OSError, ValueError, KeyError, TypeError) as error:
             issue = {"code": "DRAFT.INCOMPLETE", "message": str(error)}
             if not (output / "draft-geometry.json").exists():
-                issue["repairHint"] = SOURCE_GUIDANCE
+                issue["repairHint"] = SOURCE_GUIDANCE + " " + generic_diagnostic_hint()
+            else:
+                issue = add_repair_hint(issue, SOURCE_GUIDANCE)
             result["issues"].append(issue)
     _write_json(Path(result["result"]), result)
     return result

@@ -24,6 +24,39 @@ import cad_helpers  # noqa: E402
 
 
 class CadDiagnosticsTests(unittest.TestCase):
+    def test_repair_hint_routes_only_supported_evidence_and_preserves_producer_hints(self) -> None:
+        empty = cad_diagnostics.repair_hint_for_issue({
+            "code": "SOURCE.CHECKED_FILLET_FAILED", "observed": {"selectedEdgeCount": 0},
+        })
+        execution = cad_diagnostics.repair_hint_for_issue({
+            "code": "SOURCE.CHECKED_FILLET_FAILED", "observed": {"attempts": [{"sizeMm": 2}]},
+        })
+        self.assertIn("finishing.md#python-selector-found-no-edges", empty)
+        self.assertIn("do not change", empty)
+        self.assertIn("finishing.md#python-finishing-execution-failed", execution)
+        self.assertIsNone(cad_diagnostics.repair_hint_for_issue({
+            "code": "SOURCE.CHECKED_FILLET_FAILED", "observed": None,
+        }))
+        self.assertIsNone(cad_diagnostics.repair_hint_for_issue({
+            "code": "SOURCE.CHECKED_FILLET_FAILED", "observed": {"selectedEdgeCount": True},
+        }))
+        self.assertIn("bound stage", cad_diagnostics.repair_hint_for_issue({
+            "code": "DISPLAY.PREVIEW_FAILED", "stage": [], "observed": None, "actual": [1],
+        }) or "")
+        wrapped = cad_diagnostics.repair_hint_for_issue({"code": "DESIGN.KERNEL_FAILED", "op": "box"})
+        self.assertIn("error-diagnostics.md#timeouts-and-unknown-errors", wrapped)
+        self.assertIn("concrete source issues", wrapped)
+        cut_wrapper = cad_diagnostics.repair_hint_for_issue({"code": "DESIGN.KERNEL_FAILED", "op": "cut"})
+        self.assertIn("booleans.md#boolean-execution-failed", cut_wrapper)
+        self.assertNotIn("missed its owner", cut_wrapper)
+        self.assertIsNone(cad_diagnostics.repair_hint_for_issue({"code": "SOURCE.UNKNOWN"}))
+        preserved = cad_diagnostics.add_repair_hint({"code": "SOURCE.CUT_MISSED_OWNER", "repairHint": "Producer text."})
+        self.assertEqual(preserved["repairHint"], "Producer text.")
+        display = cad_diagnostics.repair_hint_for_issue({"code": "DISPLAY.PREVIEW_FAILED", "stage": "preview"})
+        self.assertIn("reuse passed manufacturing checks only when their current bindings verify", display)
+        draft_display = cad_diagnostics.repair_hint_for_issue({"code": "DISPLAY.MESH_FAILED", "stage": "tessellation"})
+        self.assertIn("CAD export and input artifacts", draft_display)
+
     def tearDown(self) -> None:
         cad_helpers._DEFERRED_ISSUES.clear()
         cad_helpers._EVENTS.clear()

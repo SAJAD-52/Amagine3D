@@ -22,10 +22,29 @@ if str(SKILL) not in sys.path:
     sys.path.insert(0, str(SKILL))
 
 import cad_helpers  # noqa: E402
+import cad_diagnostics  # noqa: E402
 from tests.python.intent_fixture import write_intent  # noqa: E402
 
 
 class SourceDiagnosticsTests(unittest.TestCase):
+    def test_raw_source_issue_is_routed_before_bound_sidecar_write(self):
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+            path = Path(directory) / "diagnostics.json"
+            issue = {"code": "SOURCE.CHECKED_CHAMFER_FAILED", "message": "failed",
+                     "observed": {"selectedEdgeCount": 0}, "featureId": "rim"}
+            with mock.patch.dict(os.environ, {
+                "AMAGINE3D_SOURCE_PHASE": "compile",
+                "AMAGINE3D_SOURCE_DIAGNOSTICS_PATH": str(path),
+                "AMAGINE3D_COMPILE_RUN_ID": "sample-run",
+            }):
+                cad_diagnostics.write_source_diagnostics({"pass": False, "issues": [issue]})
+            saved = json.loads(path.read_text())
+            stored = saved["issues"][0]
+            self.assertEqual(saved["runId"], "sample-run")
+            self.assertEqual(stored["featureId"], "rim")
+            self.assertEqual(stored["observed"], issue["observed"])
+            self.assertIn("finishing.md#python-selector-found-no-edges", stored["repairHint"])
+
     def setUp(self) -> None:
         cad_helpers._DEFERRED_ISSUES.clear()
         cad_helpers._EVENTS.clear()
