@@ -1036,7 +1036,6 @@ def _issue(
     issue = {
         "code": code,
         "message": str(message).strip() or "unspecified failure",
-        "repairHint": repair_hint or _repair_hint(code),
         "severity": severity,
         "stage": stage,
     }
@@ -1075,6 +1074,17 @@ def _issue(
     for key, value in (details or {}).items():
         if key in detail_fields:
             issue[key] = value
+    if repair_hint:
+        issue["repairHint"] = repair_hint
+    else:
+        from cad_diagnostics import generic_diagnostic_hint, repair_hint_for_issue
+        route = repair_hint_for_issue(issue)
+        if route is not None:
+            issue["repairHint"] = route
+        else:
+            issue["repairHint"] = _repair_hint(code)
+            if code.startswith(("AUTHORING.", "SOURCE.", "DESIGN.", "INTERNAL.", "UNKNOWN.")):
+                issue["repairHint"] += " " + generic_diagnostic_hint()
     # Context limits belong to the terminal projection, never the saved evidence.
     result["issues"].append(issue)
 

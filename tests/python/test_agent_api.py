@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import contextlib
 from hashlib import sha256
+import io
 import json
 import os
 from pathlib import Path
@@ -203,6 +205,16 @@ class AgentOperationsTests(unittest.TestCase):
         self.assertFalse(rejected.get("pass", False))
         self.assertFalse(rejected.get("reused", False))
 
+    def test_api_error_preserves_producer_hint_and_adds_request_route_when_missing(self):
+        with mock.patch.object(agent_api, "dispatch", side_effect=agent_api.RequestError(
+                "bad request", repairHint="Specific producer advice.")), \
+             mock.patch("sys.argv", ["a3d-agent", "validate", "{}"]), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(agent_api.main(), 2)
+        response = json.loads(output.getvalue())
+        self.assertEqual(response["status"], "api-error")
+        self.assertEqual(response["error"]["repairHint"], "Specific producer advice.")
+
     def test_another_designs_draft_and_failure_cannot_route_current_recovery(self):
         from tests.python.test_design_language import box_design
         old, new = self.root / "old.a3d.json", self.root / "new.a3d.json"
@@ -357,7 +369,44 @@ export_draft({'body': Box(10, 10, 10)})
         (self.root / "bad.py").write_text('def broken(:\n')
         failed = self.cli("validate", None, "--args-file", "args.json")
         self.assertEqual(failed.returncode, 1, failed.stderr + failed.stdout)
-        self.assertFalse(json.loads(failed.stdout)["pass"])
+        report = json.loads(failed.stdout)
+        self.assertFalse(report["pass"])
+        validated = agent_api.dispatch(self.root, "validate", {"source": "bad.py"})
+        self.assertIn("repairHint", validated["items"][0])
+        self.assertIn("error-diagnostics.md#", validated["items"][0]["repairHint"])
+
+    def test_design_error_route_is_added_before_dispatch_response(self):
+        from design_language import DesignError
+        failure = DesignError("BINDING_MISSING", "missing binding", "nodes.cut.owner",
+                              ruleId="owner-binding", owner="body")
+        def fail_operation(root, args):
+            raise failure
+        with mock.patch.dict(agent_api.OPERATIONS, {"design": fail_operation}):
+            result = agent_api.dispatch(self.root, "design", {"action": "read", "design": "model.a3d.json"})
+        self.assertEqual(result["issues"][0]["field"], "nodes.cut.owner")
+        self.assertEqual(result["issues"][0]["ruleId"], "owner-binding")
+        self.assertIn("error-diagnostics.md#declaration-and-binding-errors", result["issues"][0]["repairHint"])
+        self.assertNotIn("report", result)
+
+    def test_large_api_error_pointer_binds_hint_without_mutating_saved_report(self):
+        with mock.patch.object(agent_api, "dispatch", side_effect=ValueError("x" * 10_000)), \
+             mock.patch.object(agent_api.Path, "cwd", return_value=self.root), \
+             mock.patch("sys.argv", ["a3d-agent", "validate", "{}"]), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(agent_api.main(), 2)
+        response = json.loads(output.getvalue())
+        self.assertEqual(response["status"], "api-error")
+        self.assertEqual(response["error"], "Large error; inspect report /error")
+        ref = response["report"]
+        path = Path(ref["path"])
+        raw = path.read_bytes()
+        self.assertEqual(sha256(raw).hexdigest(), ref["sha256"])
+        saved = json.loads(raw)
+        self.assertIn("error-diagnostics.md#", saved["error"]["repairHint"])
+        inspected = agent_api.dispatch(self.root, "inspect", {"report": ref["path"], "sha256": ref["sha256"], "field": "/error"})
+        error_value = next(item["value"] for item in inspected["items"] if item["field"].endswith("/repairHint"))
+        self.assertIn("error-diagnostics.md#", error_value)
+        self.assertEqual(path.read_bytes(), raw)
 
     def test_capabilities_preserve_bind_semantics_and_session_knowledge(self):
         page = agent_api.dispatch(self.root, "capabilities", {"symbols": ["SelfTappingScrewPair.bind"]})

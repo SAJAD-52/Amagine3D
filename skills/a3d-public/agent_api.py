@@ -616,7 +616,8 @@ def build(root: Path, args: dict) -> dict:
         diagnostics = source.with_name("design-diagnostics.json")
         if diagnostics.exists():
             detail = json.loads(diagnostics.read_text(encoding="utf-8"))
-            result.setdefault("issues", []).extend({"stage": "design", **issue, "designRevision": design_info["revision"]} for issue in detail["issues"])
+            from cad_diagnostics import add_repair_hint, generic_diagnostic_hint
+            result.setdefault("issues", []).extend(add_repair_hint({"stage": "design", **issue, "designRevision": design_info["revision"]}, generic_diagnostic_hint()) for issue in detail["issues"])
             result["designEvidence"] = detail["evidence"]
             result.update(status="failed", **{"pass": False})
         evidence = source.with_name("node-evidence.json")
@@ -728,7 +729,7 @@ def validate(root: Path, args: dict) -> dict:
     from intent_contract import validate as intent_validate
     from scene_contract import validate as scene_validate
     from source_preflight import audit
-    from cad_diagnostics import contract_issue
+    from cad_diagnostics import add_repair_hint, contract_issue, generic_diagnostic_hint
     issues, inputs, design_ir = [], {}, None
     if "design" in args:
         from design_api import load
@@ -788,12 +789,14 @@ def validate(root: Path, args: dict) -> dict:
               "pass": not issues, "issues": issues, "inputBindings": inputs,
               "limitations": ["Contract/source preflight only; no geometry or manufacturing acceptance."]}
     from cad_compile import _issue_identity
-    for issue in issues:
+    for index, issue in enumerate(issues):
         issue.setdefault("code", "SOURCE.PREFLIGHT_FAILED")
         issue.setdefault("severity", "error")
         issue.setdefault("stage", "preflight")
         if issue.get("name"):
             issue.setdefault("subjectId", str(issue.get("module", "")) + "." + issue["name"])
+        issue = add_repair_hint(issue, generic_diagnostic_hint())
+        issues[index] = issue
         issue.setdefault("id", _issue_identity(issue))
     path = save(root, f".a3d-agent/validations/{result['runId']}.json", result)
     current = state(root)
@@ -889,7 +892,9 @@ def dispatch(root: Path, operation: str, args: dict) -> dict:
         status = result.get("status", "completed")
         return result
     except DesignError as error:
+        from cad_diagnostics import add_repair_hint, generic_diagnostic_hint
         from cad_compile import _issue_identity
+        error.issues = [add_repair_hint(issue, generic_diagnostic_hint()) for issue in error.issues]
         for issue in error.issues:
             issue.setdefault("id", _issue_identity(issue))
         result = {"schema": SCHEMA, "status": "failed", "pass": False, "issues": error.issues}
@@ -946,6 +951,9 @@ def main() -> int:
         if isinstance(error, json.JSONDecodeError):
             result["error"].update(line=error.lineno, column=error.colno, offset=error.pos,
                                   requestFile=parsed.args_file)
+        from cad_diagnostics import api_error_repair_hint
+        if not isinstance(result["error"].get("repairHint"), str) or not result["error"]["repairHint"].strip():
+            result["error"]["repairHint"] = api_error_repair_hint(result["error"])
         if wire_size(result) > 8_000:
             path = save(Path.cwd(), f".a3d-agent/errors/{uuid4()}.json", result)
             result = {"schema": SCHEMA, "status": "api-error", "report": binding(path), "error": "Large error; inspect report /error"}

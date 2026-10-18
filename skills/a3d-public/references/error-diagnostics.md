@@ -44,20 +44,44 @@ exists, inspect a returned field pointer. Legacy `a3d diagnose RESULT.json
 is separate from Agent API cursors. Do not require an issue lookup for
 `api-error`.
 
-For `AUTHORING.INVALID`, `DESIGN.BINDING_MISSING` and `DESIGN.OWNERSHIP`, read
-`ruleId`, declaration `field`, owner/part, feature or node, and `actual` /
-`expected`. Correct the declaration, binding or ownership at that location;
-do not delete requirements, invent geometry or relax a target to clear the
-issue. Revalidate before building. For `DESIGN.REVISION_CONFLICT`, follow the
-current-revision procedure below.
+Declaration/binding issues route to [declaration checks](#declaration-and-binding-errors);
+revision and stale evidence route to [current evidence](#revision-and-stale-evidence).
+Request failures use [request checks](#request-errors); CAD/display failures use
+[stage checks](#cad-and-display-failures); timeouts and unknowns use the
+[evidence collection path](#timeouts-and-unknown-errors).
 
-For revision conflicts, use the returned current revision, then read affected
-nodes and apply a local edit against that revision; never overwrite concurrent
-changes. For stale report SHA, cursor, or old failures, reacquire current
-context/report and start the query again. On timeout or unknown failure, use
-context's running attempt/log path, identify the failed stage, retain inputs
-and complete logs, and record what evidence is absent. Do not assign an
-unreported kernel cause.
+## Declaration and binding errors
+
+Read the named rule and source `field`, then inspect the owner, feature or node
+and its declared values. Repair the declaration or binding at that location;
+do not remove a requirement, invent geometry or change a frozen target.
+
+## Revision and stale evidence
+
+For revision conflicts, SHA mismatches, expired cursors and historical failures,
+obtain current context and the current report/revision before inspecting again.
+Reread affected design nodes and apply edits against the returned revision.
+Never reuse a cursor after changing its report or selector.
+
+## Request errors
+
+`api-error` can lack an issue ID and CAD report. Use its existing error fields,
+allowed/required fields, request path and JSON location. Correct the request
+before attempting geometry diagnosis.
+
+## CAD and display failures
+
+Read the bound stage report and matching input/artifact references. A draft
+display retry requires current CAD export and input bindings; it does not imply
+manufacturing acceptance. Promoting a manufacturing result requires its checks
+and bindings to pass. For a preview retry after manufacturing passed, reuse that
+evidence only when the current report and artifact bindings verify.
+
+## Timeouts and unknown errors
+
+Read the failed stage, current attempt and complete available logs. Preserve the
+reproducible inputs and state which evidence is missing. Do not infer a kernel
+cause from a generic exception or a timeout.
 
 ## Recovery and result boundaries
 

@@ -32,8 +32,11 @@ def stage_issue(error, phase):
     issue.setdefault("message", str(error))
     issue.setdefault("stage", phase)
     issue.setdefault("severity", "error")
-    issue.setdefault("repairHint", "For a draft, export_draft(parts) requires valid positive-volume BRep solids." if phase == "geometry"
-                     else "Inspect the bound CAD stage and local display issue; retry display from unchanged CAD geometry.")
+    from cad_diagnostics import add_repair_hint
+    fallback = ("For a draft, export_draft(parts) requires valid positive-volume BRep solids." if phase == "geometry"
+                else "Inspect the bound CAD export and source evidence." if phase == "cadExport"
+                else "Inspect the bound CAD stage and local display issue; retry display from unchanged CAD geometry.")
+    issue = add_repair_hint(issue, fallback)
     return issue
 
 
