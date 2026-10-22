@@ -151,6 +151,144 @@ class AgentProtocolTests(unittest.TestCase):
 
 
 class AgentOperationsTests(unittest.TestCase):
+    def test_context_and_inspect_resolve_exact_run_preview_and_prefer_only_fresh_image(self):
+        source = self.root / "model.py"
+        image_parent = self.root
+        while len(str(image_parent / "draft.png").encode()) < 374:
+            remaining = 374 - len(str(image_parent).encode()) - 2 - len("draft.png")
+            image_parent = image_parent / ("p" * min(100, remaining))
+        image = image_parent / "draft.png"
+        source.write_text("# source")
+        image.parent.mkdir(parents=True)
+        image.write_bytes(b"preview image")
+        self.assertEqual(len(str(image).encode()), 374)
+        source_ref, image_ref = protocol.binding(source), protocol.binding(image)
+        report_path = self.root / ".a3d-agent" / "runs" / "draft.json"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps({"schema": "a3d-draft-result/v2", "runId": "draft-run",
+            "status": "draft", "source": source_ref, "taskInputBindings": {"source": source_ref},
+            "artifacts": {}, "issues": []}))
+        report_ref = protocol.binding(report_path)
+        agent_api.save(self.root, ".a3d-agent/state.json", {"schema": "a3d-agent/v1",
+            "latest": {"operation": "draft", "report": report_ref, "inputs": {"source": source_ref},
+                       "outputs": {"preview": image_ref}}})
+        context = agent_api.context(self.root, {})
+        self.assertEqual(context["latest"]["preview"]["path"], str(image))
+        self.assertEqual(context["latest"]["preview"]["sha256"], image_ref["sha256"])
+        inspected = agent_api.dispatch(self.root, "inspect", {"report": report_ref["path"],
+            "sha256": report_ref["sha256"]})
+        self.assertEqual(inspected["artifacts"]["preview"], image_ref)
+        self.assertEqual(inspected["previewState"], "current")
+
+        displayed = protocol.summary({"status": "awaiting-visual-review", "pass": True,
+            "visualReviewRequired": True, "artifacts": {"preview": image_ref}}, report_ref)
+        self.assertEqual(displayed["artifacts"]["preview"], image_ref)
+        self.assertEqual(displayed["status"], "awaiting-visual-review")
+        self.assertTrue(displayed["pass"])
+        self.assertTrue(displayed["visualReviewRequired"])
+
+        stale_preview = {"path": str(image), "sha256": "0" * 64}
+        valid_diagnostic = image_ref
+        document = {"artifacts": {"preview": stale_preview, "diagnosticPreview": valid_diagnostic},
+                    "source": source_ref, "taskInputBindings": {"source": source_ref},
+                    "previewScope": {"kind": "partial", "partIds": ["shell"]}}
+        projected, metadata = agent_api._summary_document(self.root, document)
+        self.assertNotIn("preview", projected["artifacts"])
+        self.assertEqual(projected["artifacts"]["diagnosticPreview"], valid_diagnostic)
+        self.assertEqual(metadata["previewArtifact"], "diagnosticPreview")
+        self.assertEqual(metadata["previewState"], "diagnostic")
+        summary = protocol.summary(projected, report_ref, metadata_extra=metadata)
+        self.assertEqual(summary["previewScope"], {"kind": "partial", "partIds": ["shell"]})
+        other_source = self.root / "other.py"
+        other_source.write_text("# other source")
+        agent_api.save(self.root, ".a3d-agent/state.json", {"schema": protocol.SCHEMA,
+            "activeInput": {"kind": "source", "path": str(other_source)}})
+        _, historical_metadata = agent_api._summary_document(self.root, document)
+        self.assertEqual(historical_metadata["previewState"], "diagnostic-historical")
+        image.write_bytes(b"tampered")
+        projected, metadata = agent_api._summary_document(self.root, document)
+        self.assertEqual(projected["artifacts"], {})
+        self.assertEqual(metadata["previewState"], "stale-or-missing")
+        _, stale_diagnostic = agent_api._summary_document(self.root, {
+            "artifacts": {"diagnosticPreview": image_ref}, "source": source_ref,
+            "taskInputBindings": {"source": source_ref}})
+        self.assertEqual(stale_diagnostic["previewState"], "stale-or-missing")
+
+    def test_long_image_binding_survives_over_budget_dispatch_with_status_and_scope(self):
+        image_parent = self.root
+        while len(str(image_parent / "diagnostic.png").encode()) < 374:
+            remaining = 374 - len(str(image_parent).encode()) - 2 - len("diagnostic.png")
+            image_parent = image_parent / ("d" * min(100, remaining))
+        image = image_parent / "diagnostic.png"
+        image.parent.mkdir(parents=True)
+        image.write_bytes(b"diagnostic")
+        self.assertEqual(len(str(image).encode()), 374)
+        cad_report_path = self.root / "cad.json"
+        cad_report_path.write_text(json.dumps({"schema": "evidence-cad-compile-result/v2", "status": "failed",
+                                  "pass": False, "visualReviewRequired": True, "issues": []}))
+        cad_report = protocol.binding(cad_report_path)
+        image_ref = protocol.binding(image)
+        result = {"schema": protocol.SCHEMA, "report": cad_report, "status": "failed", "pass": False,
+                  "visualReviewRequired": True, "issueCounts": {"errors": 1, "warnings": 0},
+                  "artifacts": {"preview": {"path": image_ref["path"], "sha256": "0" * 64},
+                                "diagnosticPreview": image_ref},
+                  "previewScope": {"kind": "partial", "partIds": ["shell"]},
+                  "items": [{"id": str(index), "message": "diagnostic detail " + "x" * 1_000}
+                            for index in range(20)]}
+        self.assertGreater(protocol.wire_size(result), 9_000)
+        with mock.patch.dict(agent_api.OPERATIONS, {"display": lambda _root, _args: result}), \
+             mock.patch.object(agent_api, "_archive_resolved_failure"), \
+             mock.patch.object(agent_api, "remember_failure"):
+            response = agent_api.dispatch(self.root, "display", {"report": cad_report["path"],
+                "sha256": cad_report["sha256"]})
+        self.assertLessEqual(protocol.wire_size(response), 9_000)
+        self.assertEqual(response["report"], cad_report)
+        self.assertEqual(response["readMore"],
+                         "a3d agent inspect using response.path, response.sha256 and field /items")
+        self.assertEqual(response["details"], {"field": "/items", "type": "list"})
+        self.assertNotEqual(response["response"], cad_report)
+        self.assertEqual(response["artifacts"], {"diagnosticPreview": image_ref})
+        self.assertEqual(response["previewState"], "diagnostic")
+        self.assertEqual(response["previewScope"], {"kind": "partial", "partIds": ["shell"]})
+        self.assertEqual(response["status"], "failed")
+        self.assertFalse(response["pass"])
+        self.assertTrue(response["visualReviewRequired"])
+        with self.assertRaisesRegex(ValueError, "direct image handoff budget"):
+            protocol._direct_preview({"path": "/" + "x" * 1_300, "sha256": "a" * 64}, "/artifacts/preview")
+        detail = agent_api.dispatch(self.root, "inspect", {"report": response["response"]["path"],
+            "sha256": response["response"]["sha256"], "field": "/items"})
+        self.assertEqual(detail["page"]["total"], 20)
+
+    def test_oversized_context_keeps_latest_image_scope_and_report_binding(self):
+        image_parent = self.root
+        while len(str(image_parent / "context.png").encode()) < 374:
+            remaining = 374 - len(str(image_parent).encode()) - 2 - len("context.png")
+            image_parent = image_parent / ("c" * min(100, remaining))
+        image = image_parent / "context.png"
+        image.parent.mkdir(parents=True)
+        image.write_bytes(b"context preview")
+        image_ref = protocol.binding(image)
+        report_path = self.root / "latest.json"
+        report_path.write_text("{}")
+        report_ref = protocol.binding(report_path)
+        result = {"schema": protocol.SCHEMA, "padding": "x" * 10_000,
+                  "latest": {"report": report_ref, "status": "draft", "pass": False,
+                             "visualReviewRequired": True, "inputsCurrent": True,
+                             "previewState": "diagnostic-historical",
+                             "previewCurrentness": {"inputsCurrent": False, "activeInputsMatch": False,
+                                                    "historical": True},
+                             "historicalPreview": {**image_ref, "artifact": "diagnosticPreview"},
+                             "previewScope": {"kind": "partial", "partIds": ["shell"]}}}
+        with mock.patch.dict(agent_api.OPERATIONS, {"context": lambda _root, _args: result}):
+            response = agent_api.dispatch(self.root, "context", {})
+        self.assertLessEqual(protocol.wire_size(response), 9_000)
+        self.assertEqual(response["latest"]["report"], report_ref)
+        self.assertEqual(response["latest"]["historicalPreview"], {
+            "path": str(image), "sha256": image_ref["sha256"], "artifact": "diagnosticPreview"})
+        self.assertEqual(response["latest"]["previewState"], "diagnostic-historical")
+        self.assertEqual(response["latest"]["previewCurrentness"], result["latest"]["previewCurrentness"])
+        self.assertEqual(response["latest"]["previewScope"], {"kind": "partial", "partIds": ["shell"]})
+
     def test_manufacturing_pass_survives_render_failure_and_preview_retry_reuses_checks(self):
         import cad_compile
         runtime = ROOT / "skills" / "a3d-public"
@@ -185,6 +323,13 @@ class AgentOperationsTests(unittest.TestCase):
         protected[intent] = intent.read_bytes()
         with mock.patch.object(cad_compile.CommandRunner, "run", side_effect=AssertionError("QA and source must not rerun")):
             result = agent_api.dispatch(self.root, "display", display_request)
+        display_preview = result["artifacts"]["preview"]
+        self.assertEqual(len(display_preview["sha256"]), 64)
+        context_preview = agent_api.context(self.root, {})["latest"]["preview"]
+        self.assertEqual({key: context_preview[key] for key in ("path", "sha256")}, display_preview)
+        inspected = agent_api.dispatch(self.root, "inspect", {"report": result["report"]["path"],
+            "sha256": result["report"]["sha256"]})
+        self.assertEqual(inspected["artifacts"]["preview"], display_preview)
         _, retried = protocol.read_report(self.root, result["report"]["path"], result["report"]["sha256"])
         self.assertEqual(retried["status"], "awaiting-visual-review", retried["issues"])
         self.assertTrue(retried["pass"])

@@ -15,6 +15,7 @@ from typing import Any
 
 SCHEMA = "a3d-agent/v1"
 MAX_WIRE_BYTES = 9_000
+MAX_DIRECT_PREVIEW_BINDING_BYTES = 1_200
 
 
 def encode(value: Any) -> str:
@@ -91,6 +92,16 @@ def compact(value: Any, pointer: str, *, budget: int = 1_800) -> Any:
         if len(encode(result).encode()) <= budget:
             return result
     return reference(value, pointer)
+
+
+def _direct_preview(value: Any, pointer: str) -> Any:
+    """Keep the active image path usable by view_image within the bounded reply."""
+    if not isinstance(value, dict) or not isinstance(value.get("path"), str) or not isinstance(value.get("sha256"), str):
+        return reference(value, pointer)
+    selected = {key: value[key] for key in ("path", "sha256")}
+    if len(encode(selected).encode()) > MAX_DIRECT_PREVIEW_BINDING_BYTES:
+        raise ValueError("preview binding exceeds the direct image handoff budget")
+    return selected
 
 
 def issue_view(issue: dict, index: int) -> dict:
@@ -201,8 +212,14 @@ def summary(document: dict, report: dict, cursor: str | None = None, *, metadata
     }
     artifacts = document.get("artifacts", {})
     # Preview/report paths get priority over lengthy intermediate artifact lists.
-    metadata["artifacts"] = {key: compact(artifacts[key], "/artifacts/" + key, budget=350 if key in {"preview", "diagnosticPreview"} else 100)
-                             for key in ("step", "step:display", "preview", "diagnosticPreview", "buildReport", "log") if key in artifacts}
+    active_preview = ("preview" if isinstance(artifacts.get("preview"), dict)
+                      else "diagnosticPreview" if isinstance(artifacts.get("diagnosticPreview"), dict) else None)
+    metadata["artifacts"] = {
+        key: (_direct_preview(artifacts[key], "/artifacts/" + key) if key == active_preview
+              else reference(artifacts[key], "/artifacts/" + key) if key in {"preview", "diagnosticPreview"}
+              else compact(artifacts[key], "/artifacts/" + key, budget=100))
+        for key in ("step", "step:display", "preview", "diagnosticPreview", "buildReport", "log") if key in artifacts
+    }
     if "artifacts" in document:
         metadata["allArtifacts"] = reference(artifacts, "/artifacts")
     for key in ("repairDelta", "warningComparisons", "warningMeasurements", "printOrientationEvidence", "inputBindings", "source", "intent", "limitations", "previewScope", "log", "sourceDiagnostics", "cadStage", "artifactStages", "retryDisplay"):
@@ -213,7 +230,7 @@ def summary(document: dict, report: dict, cursor: str | None = None, *, metadata
     for key in reversed(list(metadata)):
         if wire_size(metadata) <= 3_500:
             break
-        if key not in {"runId", "status", "pass", "visualReviewRequired", "issueCounts"}:
+        if key not in {"runId", "status", "pass", "visualReviewRequired", "issueCounts", "artifacts"}:
             metadata[key] = reference(document.get(key), "/" + key) if key in document else metadata[key]
     views, shared = [], {}
     comparisons = {item.get("id"): (i, item) for i, item in enumerate(document.get("warningComparisons", [])) if isinstance(item, dict)}

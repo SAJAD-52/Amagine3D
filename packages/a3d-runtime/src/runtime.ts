@@ -170,10 +170,10 @@ export function codexPrompt(
     taskType === 'cad'
       ? [
           '这是一个 CAD 任务。首次初始化运行 `a3d help`，读取环境变量 `$AMAGINE3D_SKILL_DIR` 指向的确切 `SKILL.md` 一次。不要搜索或读取 cwd、用户目录或全局 skills 中的同名文件；任务分类、阶段顺序、reference 路由以该项目 skill 为准。恢复已有会话或压缩后先用 `a3d agent context`；已初始化就不要重复 help/skill。优先用 `a3d agent design/capabilities/build/inspect/validate`，参数为一个 JSON 对象，也可用 --args-file 读取当前工作区的 JSON 文件。受支持的建模操作使用参数化设计和批量局部编辑，保留可编辑 .a3d.json；新 DSL 设计应把适合用户调整的主要独立尺寸按几何放入 params（如长宽高、壁/底厚、孔径/间距、圆角、配合间隙），提供中英文 label 和合理 range；同一参数应驱动相关几何与定位，派生尺寸用表达式，不机械追求参数数量。range 不保证所有值都满足制造验收，保持冻结 intent 与 QA 目标。电子外壳的定位环、螺钉配对和安装声明已有受控 DSL 适配器；回退 Python 前说明具体缺失操作或绑定，不以产品类别决定模式。',
-          '首稿先确定外形、内腔、组件占位和功能路径，只读所需合同。功能骨架稳定后立即声明独立 intent，用 validate 检查 design/revision/intent 并首次 compile；检查安装、紧固后再细化外观。apply 返回的 revision 用于下一次 build。恢复时直接消费 context.nextAction、context.nextInspect 和 context.nextDesignRead，复用同版本 capabilityReports；仅精读缺失字段并跟随 page.nextRequest。',
+          '首稿先确认布局和功能关系，确定外形、内腔、组件占位和功能路径，只读所需合同。功能骨架稳定后立即声明独立 intent，用 validate 检查 design/revision/intent 并首次 compile；检查安装、紧固后再细化外观。apply 返回的 revision 用于下一次 build。恢复时直接消费 context.nextAction、context.nextInspect 和 context.nextDesignRead，复用同版本 capabilityReports；仅精读缺失字段并跟随 page.nextRequest。',
           '外观调整必须保留冻结 intent 的尺寸和功能目标；最终逐项核对文字验收与实际控制值。安装 witness 必须由原组件包络和完整实际路径推导，不通过缩小见证消除碰撞。',
           '项目 CLI 的 evidence gate 只拒绝已有完整成功证据且 source/intent/scene/profile 字节完全相同的 draft 或 compile。遇到 `a3d-admission-rejection/v1` 时读取 matchedResult，或实质修改输入后再运行；缺失、不完整或失败证据仍可重试，门控不决定阶段、几何、拓扑或修复策略。',
-          '用原生 view_image 读取最新五视图预览，根据实际形态、布局和功能关系修改对应参数，并用绑定报告的 agent checkpoint 保存简短观察和待办。无法识别时保留视觉审查未完成状态。若 CAD STEP 阶段通过而显示失败，先检查局部问题并用 agent display 单独重试预览，避免为法线错误改变制造几何。',
+          '优先使用本次 build/display 已返回的有效主图；仅在恢复任务或缺少图片入口时才用 context/inspect 查找。返回路径不代表图片已打开或已看懂，只有视觉证据会影响下一步时才调用原生 view_image 读取图片。当前 compile 已有主预览时直接审查它，不先重复 draft。历史图、诊断图和局部 scope 要说明状态与范围，不能据此扩展整件结论。仅显示生成失败时用 agent display 重试，不重跑制造检查；不因看图或记录观察额外触发构建或 checkpoint，合同和制造要求规定的验证仍照常完成。',
           '未经风险位置的专项 BRep/剖面检查，不把薄壁警告判为采样伪差。打印方向、支撑、桥接和免支撑结论必须引用当前 compile 的 `printOrientationEvidence` 与 mesh audit；其中的 rotateDegreesXYZ 才是 STL/3MF 的实际语义旋转。`rotated_xy_90deg=false` 只表示排版时没有额外床面 XY 四分之一转，不能覆盖 selected pose 或机器 warning。',
           '最终回复前读取本轮最新 `*_compile-result.json`，如实保留其中的 `status` 和 `visualReviewRequired`。可以报告实际完成的视觉审查及其范围，但这不改变编译器原始状态，也不证明制造或交付就绪；`pass=true` 只代表自动检查通过，不得据此声称可交付。',
           '在每个主要阶段或耗时工具调用前，用一句简短中文说明当前目标；只描述用户可理解的工作，不复述 shell 命令或内部推理。',

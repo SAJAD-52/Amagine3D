@@ -36,7 +36,8 @@ ARGUMENTS = {
     "checkpoint": {"report": str, "sha256": str, "observations": list, "todo": list, "functionalReady": bool},
     "display": {"report": str, "sha256": str},
 }
-REQUIRED = {"build": {"phase"}, "inspect": {"report"}, "design": {"action", "design"}, "checkpoint": {"report"}, "display": {"report"}}
+REQUIRED = {"build": {"phase"}, "inspect": {"report"}, "design": {"action", "design"},
+            "checkpoint": {"report"}, "display": {"report"}}
 
 
 class RequestError(ValueError):
@@ -119,6 +120,118 @@ def _paths_current(root: Path, bindings: dict) -> bool:
         return True
     except (KeyError, TypeError, OSError, ValueError):
         return False
+
+
+def _preview_binding(root: Path, document: dict) -> tuple[str | None, dict | None]:
+    artifacts = document.get("artifacts", {})
+    if not isinstance(artifacts, dict):
+        return None, None
+    stale = None
+    for key in ("preview", "diagnosticPreview"):
+        ref = artifacts.get(key)
+        if isinstance(ref, dict) and isinstance(ref.get("path"), str) and isinstance(ref.get("sha256"), str):
+            if _paths_current(root, {key: ref}):
+                return key, {"path": ref["path"], "sha256": ref["sha256"]}
+            stale = stale or key
+    return stale, None
+
+
+def _report_artifacts(root: Path, report_ref: dict, document: dict) -> dict:
+    """Join the exact run's output bindings for reports that keep them in state."""
+    result = dict(document)
+    artifacts = dict(document.get("artifacts", {})) if isinstance(document.get("artifacts"), dict) else {}
+    current = state(root)
+    records = [current.get("latest", {}), *current.get("runs", [])]
+    run = next((entry for entry in records if isinstance(entry, dict) and entry.get("report") == report_ref), None)
+    if run and isinstance(run.get("outputs"), dict):
+        artifacts = {**run["outputs"], **artifacts}
+    result["artifacts"] = artifacts
+    return result
+
+
+def _summary_document(root: Path, document: dict, report_ref: dict | None = None) -> tuple[dict, dict]:
+    """Project only a current bound image path into a direct agent response."""
+    projected = dict(document)
+    artifacts = document.get("artifacts", {})
+    key, ref = _preview_binding(root, document)
+    if isinstance(artifacts, dict):
+        projected["artifacts"] = {name: value for name, value in artifacts.items()
+                                   if name not in {"preview", "diagnosticPreview"} or name == key and ref}
+    current = state(root)
+    run_records = [current.get("latest", {}), *current.get("runs", [])]
+    run = next((entry for entry in run_records if isinstance(entry, dict)
+                and report_ref and entry.get("report") == report_ref), None)
+    inputs = (run.get("inputs", {}) if isinstance(run, dict) else {}) or document.get(
+        "taskInputBindings", document.get("inputBindings", {}))
+    if not inputs and isinstance(document.get("source"), dict):
+        inputs = {"source": document["source"]}
+    current_inputs = _paths_current(root, inputs) if inputs else False
+    active = _active_matches(root, current, inputs) if inputs else False
+    if inputs and (document.get("pass") or document.get("status") == "awaiting-preview"):
+        current_inputs = current_inputs and _intent_lineage_current(root, inputs)
+    historical = not (current_inputs and active)
+    metadata = ({"previewState": ("stale-or-missing" if not ref else
+                                   "diagnostic-historical" if key == "diagnosticPreview" and historical else
+                                   "diagnostic" if key == "diagnosticPreview" else
+                                   "historical" if historical else "current"),
+                 "previewCurrentness": {"inputsCurrent": current_inputs, "activeInputsMatch": active,
+                                        "historical": historical},
+                 **({"previewArtifact": key} if key and ref else {})} if key or artifacts else {})
+    return projected, metadata
+
+
+def _dispatch_fallback(root: Path, result: dict) -> dict:
+    """Keep essential CAD state and one usable image when large diagnostics spill."""
+    response_path = save(root, f".a3d-agent/responses/{uuid4()}.json", result)
+    response_ref = binding(response_path)
+    detail_field = "/items" if "items" in result else "/issues" if "issues" in result else ""
+    original_report = result.get("report")
+    report_ref = (original_report if isinstance(original_report, dict)
+                  and isinstance(original_report.get("path"), str)
+                  and isinstance(original_report.get("sha256"), str) else response_ref)
+    fallback = {"schema": SCHEMA, "report": report_ref,
+                "response": response_ref,
+                "readMore": "a3d agent inspect using response.path, response.sha256 and field " + (detail_field or ""),
+                "status": result.get("status"), "pass": result.get("pass"),
+                "visualReviewRequired": result.get("visualReviewRequired"),
+                "issueCounts": (result.get("issueCounts") if len(encode(result.get("issueCounts")).encode()) <= 500
+                                else {"field": "/issueCounts", "type": "dict"}),
+                "details": {"field": detail_field, "type": "list"} if detail_field else None}
+    key, image_ref = _preview_binding(root, result)
+    if key and image_ref:
+        from agent_protocol import _direct_preview
+        fallback["artifacts"] = {key: _direct_preview(image_ref, "/artifacts/" + key)}
+        if key == "diagnosticPreview":
+            fallback["previewState"] = result.get("previewState", "diagnostic")
+            fallback["previewArtifact"] = key
+        else:
+            fallback["previewState"] = result.get("previewState", "current")
+        if isinstance(result.get("previewCurrentness"), dict):
+            fallback["previewCurrentness"] = result["previewCurrentness"]
+    elif result.get("previewState"):
+        fallback["previewState"] = result["previewState"]
+    if isinstance(result.get("previewCurrentness"), dict):
+        fallback["previewCurrentness"] = result["previewCurrentness"]
+    if "previewScope" in result:
+        scope = result["previewScope"]
+        fallback["previewScope"] = scope if len(encode(scope).encode()) <= 1_000 else {"field": "/previewScope", "type": type(scope).__name__}
+    latest = result.get("latest")
+    if isinstance(latest, dict):
+        compact_latest = {key: latest[key] for key in (
+            "report", "runId", "operation", "status", "pass", "visualReviewRequired",
+            "inputsCurrent", "previewState", "previewCurrentness", "issueCounts", "previewScope"
+        ) if key in latest}
+        for key in ("preview", "historicalPreview"):
+            ref = latest.get(key)
+            if isinstance(ref, dict) and isinstance(ref.get("path"), str) and isinstance(ref.get("sha256"), str):
+                if _paths_current(root, {"preview": ref}):
+                    from agent_protocol import _direct_preview
+                    compact_latest[key] = {**_direct_preview(ref, "/latest/" + key), **(
+                        {"artifact": ref["artifact"]} if isinstance(ref.get("artifact"), str) else {})}
+        fallback["latest"] = compact_latest
+    if wire_size(fallback) > 9_000:
+        raise ValueError("essential response handoff exceeds the transport budget; inspect the saved response directly")
+    return fallback
 
 
 def _active_matches(root, current, inputs):
@@ -368,6 +481,19 @@ def context(root: Path, args: dict) -> dict:
                                   "inputsCurrent": _paths_current(root, latest.get("inputs", {})) and _active_matches(root, current, latest.get("inputs", {}))}
             if report.get("pass") or report.get("status") == "awaiting-preview":
                 response["latest"]["inputsCurrent"] &= _intent_lineage_current(root, latest.get("inputs", {}))
+            bound_report = _report_artifacts(root, ref, report)
+            preview_key, preview_ref = _preview_binding(root, bound_report)
+            if isinstance(report.get("previewScope"), (dict, list, str)):
+                response["latest"]["previewScope"] = compact(report["previewScope"], "/previewScope", budget=300)
+            if preview_ref:
+                preview_field = "preview" if response["latest"]["inputsCurrent"] else "historicalPreview"
+                response["latest"][preview_field] = {**preview_ref, "artifact": preview_key}
+                diagnostic = preview_key == "diagnosticPreview"
+                response["latest"]["previewState"] = (("diagnostic" if preview_field == "preview" else "diagnostic-historical")
+                                                       if diagnostic else
+                                                       "current" if preview_field == "preview" else "historical")
+            elif preview_key:
+                response["latest"]["previewState"] = "stale-or-missing"
             inspect_request = {"report": ref["path"], "sha256": ref["sha256"]}
             response["nextInspect" if response["latest"]["inputsCurrent"] else "historicalInspect"] = inspect_request
             response["suggestedPhase"] = ("draft-feedback" if report.get("status") == "draft" else
@@ -565,8 +691,10 @@ def build(root: Path, args: dict) -> dict:
                     and _paths_current(root, latest.get("outputs", {}))):
                 if phase == "draft" or _intent_lineage_current(root, inputs):
                     save(root, ".a3d-agent/state.json", current)
-                    return summary(previous, ref, metadata_extra={"reused": True, "inputsCurrent": True,
-                                   **({"design": design_info} if design_info else {})})
+                    bound = _report_artifacts(root, ref, previous)
+                    projected, image_metadata = _summary_document(root, bound, ref)
+                    return summary(projected, ref, metadata_extra={"reused": True, "inputsCurrent": True,
+                    **image_metadata, **({"design": design_info} if design_info else {})})
         except (OSError, ValueError, KeyError):
             pass
     timeout = args.get("timeoutSeconds", 120 if phase == "draft" else 5_400)
@@ -696,14 +824,18 @@ def build(root: Path, args: dict) -> dict:
     current["runs"] = [*current.get("runs", []), current["latest"]][-20:]
     current.pop("activeAttempt", None)
     save(root, ".a3d-agent/state.json", current)
-    return summary(result, binding(path), metadata_extra={"reused": False, "inputsCurrent": _paths_current(root, inputs),
-                   **({"design": design_info} if design_info else {})})
+    report_ref = binding(path)
+    bound = _report_artifacts(root, report_ref, result)
+    projected, image_metadata = _summary_document(root, bound, report_ref)
+    return summary(projected, report_ref, metadata_extra={"reused": False, "inputsCurrent": _paths_current(root, inputs),
+                    **image_metadata, **({"design": design_info} if design_info else {})})
 
 
 def inspect_report(root: Path, args: dict) -> dict:
     ref, document = read_report(root, args["report"], args.get("sha256"))
     if "field" not in args and "issueId" not in args and isinstance(document, dict) and "issues" in document:
-        return summary(document, ref, args.get("cursor"))
+        projected, metadata = _summary_document(root, _report_artifacts(root, ref, document), ref)
+        return summary(projected, ref, args.get("cursor"), metadata_extra=metadata)
     page = inspect(document, ref, field=args.get("field", ""), issue_id=args.get("issueId"), cursor=args.get("cursor"))
     if (Path(ref["path"]).is_relative_to(root / ".a3d-agent/capabilities")
             and document.get("capabilityVersion") == capability_version()):
@@ -893,8 +1025,7 @@ def dispatch(root: Path, operation: str, args: dict) -> dict:
         elif operation in {"build", "validate", "display"}:
             _archive_resolved_failure(root, operation, args, result)
         if wire_size(result) > 9_000:
-            path = save(root, f".a3d-agent/responses/{uuid4()}.json", result)
-            result = inspect(result, binding(path))
+            result = _dispatch_fallback(root, result)
         status = result.get("status", "completed")
         return result
     except DesignError as error:
@@ -911,8 +1042,7 @@ def dispatch(root: Path, operation: str, args: dict) -> dict:
         if operation in {"build", "validate"} or operation == "design" and args.get("action") == "apply":
             result["report"] = remember_failure(root, operation, args, result)
         if wire_size(result) > 9_000:
-            path = save(root, f".a3d-agent/responses/{uuid4()}.json", result)
-            result = summary(result, binding(path))
+            result = _dispatch_fallback(root, result)
         status = "failed"
         return result
     except (KeyboardInterrupt, SystemExit):

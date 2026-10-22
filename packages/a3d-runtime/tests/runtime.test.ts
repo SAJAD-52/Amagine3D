@@ -51,6 +51,9 @@ test('maps the existing model and reasoning environment to Codex', () => {
   assert.match(cadPrompt, /缺失、不完整或失败证据仍可重试/u);
   assert.match(cadPrompt, /门控不决定阶段、几何、拓扑或修复策略/u);
   assert.match(cadPrompt, /view_image/u);
+  assert.match(cadPrompt, /优先使用本次 build\/display 已返回的有效主图/u);
+  assert.match(cadPrompt, /仅在恢复任务或缺少图片入口时才用 context\/inspect/u);
+  assert.match(cadPrompt, /不因看图或记录观察额外触发构建或 checkpoint/u);
   assert.match(cadPrompt, /布局和功能关系/u);
   assert.match(cadPrompt, /`printOrientationEvidence` 与 mesh audit/u);
   assert.match(cadPrompt, /rotateDegreesXYZ 才是 STL\/3MF 的实际语义旋转/u);
