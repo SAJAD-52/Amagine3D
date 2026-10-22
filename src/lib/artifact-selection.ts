@@ -14,6 +14,7 @@ function modifiedTime(artifact: ArtifactSummary): number {
 
 /** Only declared build outputs and explicitly featured bundled models auto-open. */
 export function automaticPreviewEligible(artifact: ArtifactSummary): boolean {
+  if (artifact.purpose === 'observation-preview') return false;
   if (artifact.partId && !artifact.primary) return false;
   if (artifact.purpose === 'internal-evidence') return false;
   if (artifact.purpose === 'unclassified' && !artifact.primary && !artifact.featured) return false;
@@ -162,6 +163,7 @@ export function fileSectionArtifacts(
     .filter(
       ({ artifact }) =>
         (artifact.primary === true && (isPreviewModel(artifact) || artifact.purpose === 'cad-model' || artifact.kind === 'image')) ||
+        artifact.purpose === 'observation-preview' ||
         (artifact.legacy === true && artifact.kind === 'other'),
     )
     .sort(

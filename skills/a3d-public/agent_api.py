@@ -35,9 +35,10 @@ ARGUMENTS = {
     "validate": {"intent": str, "scene": str, "source": str, "design": str, "revision": str},
     "checkpoint": {"report": str, "sha256": str, "observations": list, "todo": list, "functionalReady": bool},
     "display": {"report": str, "sha256": str},
+    "preview": {"report": str, "sha256": str, "sourceArtifact": str, "requests": list},
 }
 REQUIRED = {"build": {"phase"}, "inspect": {"report"}, "design": {"action", "design"},
-            "checkpoint": {"report"}, "display": {"report"}}
+            "checkpoint": {"report"}, "display": {"report"}, "preview": {"report", "sha256", "requests"}}
 
 
 class RequestError(ValueError):
@@ -99,7 +100,7 @@ def state(root: Path) -> dict:
 def capability_version() -> str:
     from capability_manifest import build_manifest
     runtime = [sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-               for name in ("agent_api.py", "agent_protocol.py", "design_language.py", "design_api.py", "design_build.py", "design_connections.py", "design_roles.py", "cad_stages.py", "cad_display_retry.py", "display_step.py", "display_normals.py",
+               for name in ("agent_api.py", "agent_protocol.py", "agent_preview.py", "cpu_z_buffer.py", "brep_measurements.py", "design_language.py", "design_api.py", "design_build.py", "design_connections.py", "design_roles.py", "cad_stages.py", "cad_display_retry.py", "display_step.py", "display_normals.py",
                             "intent_contract.py", "intent_revision.py", "cad_diagnostics.py")]
     return sha256(encode([build_manifest()["fingerprint"], *runtime]).encode()).hexdigest()
 
@@ -833,6 +834,55 @@ def build(root: Path, args: dict) -> dict:
 
 def inspect_report(root: Path, args: dict) -> dict:
     ref, document = read_report(root, args["report"], args.get("sha256"))
+    if isinstance(document, dict) and document.get("schema") == "a3d-agent-preview/v1":
+        from agent_preview import _currentness
+        projected = dict(document)
+        observations = []
+        image_states = []
+        workspace = root.resolve()
+        digest = document.get("manifestSha256")
+        unsigned = {key: value for key, value in document.items() if key != "manifestSha256"}
+        manifest_current = digest == sha256(encode(unsigned).encode()).hexdigest()
+        for item in document.get("observations", []):
+            if not isinstance(item, dict):
+                observations.append({"status": "malformed"})
+                image_states.append({"id": None, "current": False})
+                continue
+            projected_item = dict(item)
+            image_ref = item.get("image", {}) if isinstance(item, dict) else {}
+            image_path = Path(image_ref.get("path", "")) if isinstance(image_ref, dict) else Path()
+            try:
+                resolved = image_path.resolve(strict=True)
+                image_current = (manifest_current and resolved.is_relative_to(workspace) and resolved.is_file()
+                                 and sha256(resolved.read_bytes()).hexdigest() == image_ref.get("sha256"))
+            except (OSError, RuntimeError, ValueError):
+                image_current = False
+            image_states.append({"id": item.get("id"), "current": image_current})
+            if not image_current:
+                projected_item.pop("image", None)
+            observations.append(projected_item)
+        projected["observations"] = observations
+        parent_ref = document.get("parentReport", {})
+        metadata = {"previewCurrentness": {"status": "stale"}}
+        try:
+            if not manifest_current:
+                raise ValueError("preview manifest hash is stale")
+            bound_parent, parent = read_report(root, parent_ref["path"], parent_ref["sha256"])
+            if bound_parent != parent_ref:
+                raise ValueError("parent report binding changed")
+            status = _currentness(root, parent, parent_ref)
+            source_binding = document.get("sourceArtifact", {}).get("binding", {})
+            status["sourceCurrent"] = _paths_current(root, {"sourceArtifact": source_binding})
+            status["historical"] = status["historical"] or not status["sourceCurrent"]
+            status["imagesCurrent"] = all(item["current"] for item in image_states)
+            status["images"] = image_states
+            status["status"] = ("stale" if not status["imagesCurrent"] else
+                                 "historical" if status["historical"] else "current")
+            metadata = {"previewCurrentness": status}
+        except (KeyError, OSError, TypeError, ValueError):
+            pass
+        return inspect(projected, ref, field=args.get("field", ""), issue_id=args.get("issueId"),
+                       cursor=args.get("cursor"), metadata=metadata)
     if "field" not in args and "issueId" not in args and isinstance(document, dict) and "issues" in document:
         projected, metadata = _summary_document(root, _report_artifacts(root, ref, document), ref)
         return summary(projected, ref, args.get("cursor"), metadata_extra=metadata)
@@ -956,6 +1006,14 @@ def display(root, args):
 OPERATIONS["display"] = display
 
 
+def preview(root, args):
+    from agent_preview import preview as create_preview
+    return create_preview(root, args)
+
+
+OPERATIONS["preview"] = preview
+
+
 def check_arguments(operation: str, args: dict) -> None:
     if operation not in ARGUMENTS:
         raise ValueError("unknown task operation; choose " + ", ".join(ARGUMENTS))
@@ -979,6 +1037,10 @@ def check_arguments(operation: str, args: dict) -> None:
                                    repairHint="Submit a valid dependency-complete batch, then use its returned revision as the next baseRevision.")
             continue
         if spec[key] is list:
+            if operation == "preview" and key == "requests":
+                if not isinstance(value, list) or not value or len(value) > 4 or any(not isinstance(item, dict) for item in value):
+                    raise RequestError("requests must be an array of 1..4 observation objects", field=key, maximumItems=4)
+                continue
             maximum_length = 4_096 if key == "dependencies" else 300 if operation == "checkpoint" else 200
             if not isinstance(value, list) or any(
                 not isinstance(item, str) or not item.strip() or len(item) > maximum_length for item in value
@@ -1015,7 +1077,7 @@ def dispatch(root: Path, operation: str, args: dict) -> dict:
     status = "api-error"
     try:
         check_arguments(operation, args)
-        if operation in {"capabilities", "build", "validate", "checkpoint", "display"} or operation == "design" and args.get("action") == "apply":
+        if operation in {"capabilities", "build", "validate", "checkpoint", "display", "preview"} or operation == "design" and args.get("action") == "apply":
             with mutation_lock(root):
                 result = OPERATIONS[operation](root, args)
         else:

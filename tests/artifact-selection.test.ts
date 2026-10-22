@@ -57,6 +57,15 @@ test('keeps plate selection and hides individual parts and obsolete plates', () 
   assert.equal(printPreviewForSelection(artifacts, display, { primaryPreviewPath: plates[0]!.path }), plates[0]);
 });
 
+test('lists non-primary observation images without making them default previews', () => {
+  const assembly = { ...model('assembly.step', 'step', '2026-10-22'),
+    primary: true, modelId: 'assembly', buildId: 'run-1' };
+  const observation = { ...artifact('observation-00.png', 'image'), purpose: 'observation-preview' as const,
+    primary: false, modelId: 'assembly', buildId: 'run-1', inputsCurrent: true };
+  assert.equal(defaultPreviewArtifact([observation, assembly]), assembly);
+  assert.deepEqual(fileSectionArtifacts([observation, assembly]).map(({ path }) => path), [assembly.path, observation.path]);
+});
+
 test('lists each plate once in numeric order and prefers its 3MF preview', () => {
   const plates = ['10', '02', '01'].flatMap((plateId) => (['stl', '3mf'] as const).map((format) => ({
     ...model(`pair-plate-${plateId}.${format}`, format, '2026-10-15'),

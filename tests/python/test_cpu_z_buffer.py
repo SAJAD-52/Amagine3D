@@ -108,6 +108,19 @@ class CpuZBufferRegressionTests(unittest.TestCase):
             ("isometric", "front", "side", "top", "bottom"),
         )
 
+    def test_back_left_aliases_and_local_camera_scope(self) -> None:
+        cube = _box("cube", (4.0, 3.0, 2.0), (0.0, 0.0, 0.0), (120, 170, 210))
+        for view in ("back", "left"):
+            rendered = render_view([cube], view, 320)
+            self.assertGreater(rendered.stats.covered_pixels, 0, view)
+        full = render_view([cube], "top", 320)
+        local = render_view([cube], "top", 320,
+                            crop_bounds=(np.array([-1.0, -1.0, -1.0]), np.array([1.0, 1.0, 1.0])))
+        self.assertGreater(local.stats.covered_pixels, full.stats.covered_pixels)
+        with self.assertRaisesRegex(ValueError, "camera scope"):
+            render_view([cube], "top", 320,
+                        crop_bounds=(np.array([1.0, 1.0, 1.0]), np.array([1.0, 2.0, 2.0])))
+
     def test_double_through_hole_plate_has_no_false_top_face_groove(self) -> None:
         # Five coplanar solids form a plate with two fully enclosed square holes.
         # Their top faces contain many independent triangles and shared seams.

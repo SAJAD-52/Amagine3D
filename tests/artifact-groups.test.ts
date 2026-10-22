@@ -57,6 +57,20 @@ test('independent design identities remain separate even with matching display f
   assert.deepEqual(new Set(artifactDesigns([first, second]).map((design) => design.name)), new Set(['robot', 'dock']));
 });
 
+test('late observation images stay in their build files without changing version recency or default preview', () => {
+  const old = file('old', 'old/display.step', { modifiedAt: '2026-10-15T09:00:00Z' });
+  const current = file('current', 'current/display.step', { modifiedAt: '2026-10-15T10:00:00Z' });
+  const observation = { ...file('old', 'old/observation.png', { kind: 'image', format: undefined,
+    purpose: 'observation-preview', primary: false, modifiedAt: '2026-10-15T11:00:00Z' }),
+  kind: 'image' as const };
+  const [design] = artifactDesigns([old, current, observation]);
+  assert.equal(design?.latest.id, 'current');
+  assert.equal(design?.latest.preview, current);
+  const oldVersion = design?.versions.find(({ id }) => id === 'old');
+  assert.equal(oldVersion?.modifiedAt, old.modifiedAt);
+  assert.ok(oldVersion?.artifacts.includes(observation));
+});
+
 test('intermediate geometry, reports and legacy attachments do not create design cards', () => {
   const cutter = file('failed', 'feature-cutter.step', { purpose: 'internal-evidence', status: 'failed', primary: false });
   const report = file('failed', 'report.json', { kind: 'report', format: undefined, primary: false });

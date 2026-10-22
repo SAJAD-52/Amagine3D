@@ -131,7 +131,7 @@ export interface SkillSummary {
 }
 
 export type ArtifactPurpose = 'display-preview' | 'draft-preview' | 'diagnostic-preview' |
-  'print-package' | 'cad-model' | 'internal-evidence' | 'unclassified';
+  'observation-preview' | 'print-package' | 'cad-model' | 'internal-evidence' | 'unclassified';
 
 export interface ArtifactSummary {
   /** Stable design/source identity shared by its drafts and subsequent builds. */
