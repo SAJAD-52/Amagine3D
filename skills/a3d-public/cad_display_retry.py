@@ -8,7 +8,8 @@ from uuid import uuid4
 
 
 def retry_display(root, args):
-    from agent_api import RequestError, _active_matches, _intent_lineage_current, _paths_current, capability_version, save, state
+    from agent_api import (RequestError, _active_matches, _intent_lineage_current, _paths_current,
+                           _report_artifacts, _summary_document, capability_version, save, state)
     from agent_protocol import binding, read_report, scoped, summary
     from build123d import import_step
     from cad_stages import artifact_stage, read_cad_stage, stage_issue, write
@@ -52,7 +53,8 @@ def retry_display(root, args):
             proof_current = (previous.get("status") != "awaiting-visual-review" or
                              (reusable_manufacturing and _paths_current(root, full_inputs) and _paths_current(root, full_outputs)))
             if previous.get("status") in {"draft", "awaiting-visual-review"} and proof_current and _paths_current(root, latest.get("outputs", {})):
-                return summary(previous, ref, metadata_extra={"reused": True, "inputsCurrent": True})
+                projected, image_metadata = _summary_document(root, _report_artifacts(root, ref, previous))
+                return summary(projected, ref, metadata_extra={"reused": True, "inputsCurrent": True, **image_metadata})
         except (OSError, ValueError, KeyError): pass
     run_id = str(uuid4())
     output = scoped(root, ".amagine3d-drafts/" + run_id, exists=False)
@@ -149,4 +151,7 @@ def retry_display(root, args):
                          **({"design": parent["design"]} if parent.get("design") else {})}
     current["runs"] = [*current.get("runs", []), current["latest"]][-20:]
     save(root, ".a3d-agent/state.json", current)
-    return summary(result, binding(path), metadata_extra={"reused": False, "inputsCurrent": _paths_current(root, inputs)})
+    report_ref = binding(path)
+    projected, image_metadata = _summary_document(root, _report_artifacts(root, report_ref, result))
+    return summary(projected, report_ref, metadata_extra={"reused": False, "inputsCurrent": _paths_current(root, inputs),
+                                                          **image_metadata})

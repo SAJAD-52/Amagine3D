@@ -39,10 +39,10 @@ a3d agent build '{"phase":"draft","design":"model.a3d.json","revision":"REVISION
 a3d agent build '{"phase":"draft","source":"model_build.py"}'
 ```
 
-View the returned preview with view_image and edit from actual form/function feedback. Failed-operation diagnostic images may show only prior valid geometry.
+Use the returned image; query context/inspect after recovery or if missing. Use view_image only when visuals affect a decision. Label historical/diagnostic scope.
 If artifactStages reports display failure after passed cadExport, keep the bound STEP and use `a3d agent display '{"report":"RUN.json","sha256":"SHA"}'`; localize the issue before changing manufacturing geometry.
 At `awaiting-preview`, manufacturing has passed but PNG evidence is incomplete. Use context's `nextDisplay`; display retry verifies and reuses the original manufacturing proof without rerunning source or checks. Automatic pass still requires visual review.
-Save up to six observations/todo items with `a3d agent checkpoint` bound to the run report. It records agent feedback, never CAD acceptance or proof that an image was viewed.
+Record up to six consequential follow-up notes with `a3d agent checkpoint`. Viewing/noting need no extra build/checkpoint; complete required validation. Notes aren't acceptance or proof of review.
 A draft does not establish installation, final dimensions or printability. Repeat builds after changed inputs, new evidence or incomplete/failed attempts.
 
 ## Contract and compile
@@ -68,7 +68,7 @@ Python requires a scene destination even when source generates it; DSL creates o
 
 On failure, read `$AMAGINE3D_RUNTIME_DIR/references/error-diagnostics.md`; load its linked operation guide only as needed. Route request/validation, Boolean or finishing errors by returned evidence, not code prefix alone.
 Read issue IDs, owners, actual/expected and repair hints; use report/SHA with agent inspect and page.nextRequest. Do not guess filenames, write report parsers or pipe CAD output through head/tail.
-Repair owning datums/features; unchanged fully bound success is reused. At pass=true/status=awaiting-visual-review, view the actual preview instead of recompiling.
+Repair owning datums/features; unchanged fully bound success is reused. At pass=true/status=awaiting-visual-review, review the current preview without recompiling just for review.
 Report status, visualReviewRequired, review scope and unresolved warnings accurately; automatic acceptance alone does not prove manufacturing readiness.
 Thin-wall sampling minima/p05 do not prove a false alarm: retain warnings unless a targeted BRep/section check at the risk location establishes the cause.
 Use printOrientationEvidence for support/bridge claims; rotateDegreesXYZ is the actual export pose.

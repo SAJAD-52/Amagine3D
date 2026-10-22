@@ -57,7 +57,25 @@ version still verify. The successful retry returns `awaiting-visual-review` and
 records `manufacturingEvidence.parentReport`; installation and manufacturing
 checks are not rerun. A changed proof cannot be reused or promoted.
 
-After an actual review, retain a small agent checkpoint:
+## Image handoff and review status
+
+`context`, `inspect`, and build/display summaries expose one usable image binding
+as its full `path` and SHA-256. The main `preview` is preferred when its bytes
+still match; otherwise a current `diagnosticPreview` may be exposed and is marked
+diagnostic. If neither image matches, the summary omits both paths and reports
+`stale-or-missing`. Draft reports may keep image bindings in the exact run's
+`state.json` outputs rather than their report body; lookup matches both report
+path and hash and never borrows another run's image.
+
+A current image path does not mean it was opened or visually reviewed. Use the
+image only when it can affect the next decision, and inspect `previewScope` and
+the bound report before making claims. Historical images and local diagnostic
+images remain explicitly labeled; a partial scope cannot establish whole-part
+status. When a compile already has a current image, review it instead of running
+a draft to obtain another image. Use `agent display` only to retry a failed
+derived display; it reuses manufacturing evidence and does not rerun checks.
+
+When review findings affect follow-up work, optionally record a small agent checkpoint:
 
 ```bash
 a3d agent checkpoint '{"report":".a3d-agent/runs/RUN.json","sha256":"REPORT_SHA","observations":["screen opening visible"],"todo":["validate insertion clearance"],"functionalReady":true}'

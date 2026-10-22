@@ -51,9 +51,9 @@ export const curatedLicenses: CuratedLicense[] = [
     files: [{ href: '/licenses/vite.txt', label: 'MIT' }],
     license: 'MIT',
     name: 'Vite',
-    source: 'https://github.com/vitejs/vite/tree/v7.3.6',
+    source: 'https://github.com/vitejs/vite/tree/v7.3.7',
     use: { en: 'Web application build and development server', zh: 'Web 应用构建与开发服务器' },
-    version: '7.3.6',
+    version: '7.3.7',
   },
   {
     files: [{ href: '/licenses/react.txt', label: 'MIT' }],
