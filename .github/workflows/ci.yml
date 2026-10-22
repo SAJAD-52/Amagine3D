@@ -102,6 +102,7 @@ jobs:
       - run: node --import tsx --test tests/model-parameters.test.ts
         if: runner.os == 'Windows'
       - run: python -m unittest tests.python.test_cpu_z_buffer
+      - run: python -m unittest tests.python.test_preview_resource_limits
       - run: python scripts/benchmark_cpu_z_buffer.py --resolution 320 --large-subdivisions 4 --out cpu-z-buffer-benchmark.json
       - uses: actions/upload-artifact@v4
         with:

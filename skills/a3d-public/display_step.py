@@ -206,7 +206,49 @@ def _fallback_objects(path):
     return objects
 
 
-def load_step_objects(path, *, object_names=None):
+def _legacy_stage_records(path):
+    """Return records reconstructed by the historical stage fallback."""
+    for stage_path in path.parent.glob("*_cad-stage.json"):
+        stage = json.loads(stage_path.read_text(encoding="utf-8"))
+        artifacts = stage.get("artifacts", {})
+        keys = [key for key, ref in artifacts.items() if ref == binding(path)]
+        if not keys:
+            continue
+        records = []
+        for obj in stage.get("objects", []):
+            key = obj.get("stepArtifact")
+            if key not in artifacts or (keys[0].startswith("step:") and keys[0] != "step:assembly" and key not in keys):
+                continue
+            if keys[0] == "step:assembly" and obj.get("role") not in {"manufactured", "manufactured-part"}:
+                continue
+            records.append({**obj, "step": artifacts[key], "appearance": obj.get("appearance", appearance(obj.get("color", "#6891B5"))),
+                            "role": "display-only" if obj.get("role") == "component-reference" else obj.get("role", "unclassified")})
+        return records, stage_path
+    return None, None
+
+
+def step_object_dependencies(path, object_names=None, *, allow_legacy_stage=True):
+    """Return bound scene/stage and STEP refs using the display loader's rules."""
+    path = Path(path).resolve()
+    descriptor_path = scene_path(path)
+    if descriptor_path.is_file():
+        descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+        records = descriptor.get("objects", [])
+        stage_ref = binding(descriptor_path)
+    else:
+        legacy = _legacy_stage_records(path) if allow_legacy_stage else (None, None)
+        if legacy[0] is None:
+            return {"stage": None, "objects": []}
+        records = legacy[0]
+        stage_ref = binding(legacy[1])
+    requested = None if object_names is None else set(object_names)
+    refs = [record.get("step") for record in records
+            if isinstance(record, dict) and (requested is None or record.get("name") in requested)
+            and isinstance(record.get("step"), dict)]
+    return {"stage": stage_ref, "objects": refs}
+
+
+def load_step_objects(path, *, object_names=None, allow_legacy_stage=True):
     """Return identity-bound objects in semantic coordinates and provenance."""
     from export_audit import _geometry_errors, geometry_record
     path = Path(path).resolve()
@@ -229,24 +271,10 @@ def load_step_objects(path, *, object_names=None):
             raise DisplayStepError("STEP display object identities or coordinate frames are invalid")
     else:
         # Historical stage manifests can recover recorded roles without GLB.
-        records = None
-        for stage_path in path.parent.glob("*_cad-stage.json"):
-            stage = json.loads(stage_path.read_text(encoding="utf-8"))
-            artifacts = stage.get("artifacts", {})
-            keys = [key for key, ref in artifacts.items() if ref == binding(path)]
-            if not keys:
-                continue
-            provenance["scene"] = binding(stage_path)
-            records = []
-            for obj in stage.get("objects", []):
-                key = obj.get("stepArtifact")
-                if key not in artifacts or (keys[0].startswith("step:") and keys[0] != "step:assembly" and key not in keys):
-                    continue
-                if keys[0] == "step:assembly" and obj.get("role") not in {"manufactured", "manufactured-part"}:
-                    continue
-                records.append({**obj, "step": artifacts[key], "appearance": obj.get("appearance", appearance(obj.get("color", "#6891B5"))),
-                                "role": "display-only" if obj.get("role") == "component-reference" else obj.get("role", "unclassified")})
-            break
+        records, stage_path = (_legacy_stage_records(path) if allow_legacy_stage else (None, None))
+        if records is not None:
+            if stage_path is not None:
+                provenance["scene"] = binding(stage_path)
         if records is None:
             fallback = _fallback_objects(path)
             requested = None if object_names is None else set(object_names)

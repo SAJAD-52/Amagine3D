@@ -1,0 +1,1772 @@
+{
+  "schema": "rfc-33-evaluation/v1",
+  "date": "2026-10-22",
+  "protocol": {
+    "createdAt": "2026-10-22T06:39:11.045Z",
+    "arms": {
+      "before": "f5f398751583bc16c221ca7ca163a0866c5e74d5",
+      "after": "93f4a9234485feedaefedf0f1cb58292fa7b7cdb"
+    },
+    "model": "deepseek-flash",
+    "reasoning": "low",
+    "search": false,
+    "order": [
+      "before-spacer",
+      "before-document-only",
+      "before-repeat-evidence",
+      "after-spacer",
+      "after-document-only",
+      "after-repeat-evidence"
+    ],
+    "prompts": {
+      "01-spacer": "做一个单色3D打印的定位垫块，长32、宽20、高6毫米，中心有直径5毫米的贯穿孔，外部竖边圆角1毫米；平底，无其他装配件。生成可编辑参数模型和STEP及打印工件，按项目流程完成验证。最终给出实际尺寸、孔径与位置、编译状态，并保留未解决的问题。",
+      "02-document-only": "模型已经确定，本次只补使用说明：在README.md中记录垫块的目标尺寸32×20×6 mm、中心贯穿孔5 mm、外部竖边圆角1 mm，以及刚才实际验证的结果和未解决问题。保持几何、设计和制造声明文件不变。",
+      "03-repeat-evidence": "把刚才这个垫块的实际尺寸、当前验证状态和已有工件链接再汇总一次即可，模型需求和输入没有变化。"
+    },
+    "outcomes": [
+      "wall-clock elapsed per turn",
+      "SDK-reported usage with unavailable fields left unknown",
+      "CAD build/preview/display/measure/checkpoint invocations",
+      "native image tool calls and matching image payloads",
+      "exact geometry dimensions and hole/corner features",
+      "compiler status and unresolved warnings",
+      "source/STEP/intent hashes for followups"
+    ],
+    "limits": "Exploratory paired cases; no statistical quality/speed generalization. Failed and interrupted cases are retained. Dedicated seeded inspection case will be frozen before either arm runs it."
+  },
+  "inspectionPlan": {
+    "fixture": "37-degree rotated rectangular internal L channel with separate opaque side cover",
+    "prompt": "当前工作区已有一份绑定的草稿，含 channel-body 和 outer-cover 两个对象；默认总览不能清楚显示侧开口和内部通道。请基于当前实际几何检查：侧开口是否连通内部通道、外罩是否遮挡该开口，以及内部直角转弯是否连通。请提供支持判断的局部视图与剖面证据，并说明证据范围和不能证明的内容。观察的对象、方向、局部范围和剖面由你根据几何自行判断。不要修改或重建模型，本次不做制造验收。",
+    "seeds": {
+      "before": {
+        "sessionId": "0fa84633-4f71-4cae-9c4c-e7fb2eee4b2e",
+        "workspace": "<repository>/workspace/rfc-33-validation/snapshots/before/workspace/sessions/0fa84633-4f71-4cae-9c4c-e7fb2eee4b2e"
+      },
+      "after": {
+        "sessionId": "5a169ef7-a264-4864-8c6d-0e003c8bc159",
+        "workspace": "<repository>/workspace/rfc-33-validation/snapshots/after/workspace/sessions/5a169ef7-a264-4864-8c6d-0e003c8bc159"
+      }
+    },
+    "groundTruth": {
+      "channelConnected": true,
+      "sideOpeningCommunicatesWithInternalChannel": true,
+      "coverOccludesAlongOpeningNormal": true,
+      "fullManufacturingAcceptance": false
+    },
+    "evidenceBoundary": "An existing-draft inspection task, separate from the complete spacer modeling task.",
+    "createdBeforeEitherArmRun": true
+  },
+  "prompts": {
+    "01-spacer.txt": "做一个单色3D打印的定位垫块，长32、宽20、高6毫米，中心有直径5毫米的贯穿孔，外部竖边圆角1毫米；平底，无其他装配件。生成可编辑参数模型和STEP及打印工件，按项目流程完成验证。最终给出实际尺寸、孔径与位置、编译状态，并保留未解决的问题。\n",
+    "02-document-only.txt": "模型已经确定，本次只补使用说明：在README.md中记录垫块的目标尺寸32×20×6 mm、中心贯穿孔5 mm、外部竖边圆角1 mm，以及刚才实际验证的结果和未解决问题。保持几何、设计和制造声明文件不变。\n",
+    "03-repeat-evidence.txt": "把刚才这个垫块的实际尺寸、当前验证状态和已有工件链接再汇总一次即可，模型需求和输入没有变化。\n",
+    "04-inspection.txt": "当前工作区已有一份绑定的草稿，含 channel-body 和 outer-cover 两个对象；默认总览不能清楚显示侧开口和内部通道。请基于当前实际几何检查：侧开口是否连通内部通道、外罩是否遮挡该开口，以及内部直角转弯是否连通。请提供支持判断的局部视图与剖面证据，并说明证据范围和不能证明的内容。观察的对象、方向、局部范围和剖面由你根据几何自行判断。不要修改或重建模型，本次不做制造验收。\n",
+    "05-declaration-only.txt": "只完善 intent 中外形尺寸的证据说明：明确这些尺寸来自用户给定的名义 CAD 目标，不是实物测量。尺寸、容差、几何与制造约束都不变，已有几何证据足够。按现有冻结 intent 的修订规则保存，并完成声明所需的验证；保留原冻结版本和 STEP，不修改模型。\n"
+  },
+  "summary": {
+    "notes": [
+      "Fresh-session usage is its SDK total; resumed-turn usage is the difference from the prior completed turn in the same session. Trace token_count totals were cross-checked against SDK snapshots.",
+      "Cached input is a subset of input, and reasoning output a subset of output. Do not add these subsets to totals.",
+      "Model response count is distinct increasing token_count total records; native tool calls and commands are separate denominators.",
+      "These are exploratory single paired cases; model stochasticity, sequential order and cache effects prevent causal speed/quality claims."
+    ],
+    "runs": [
+      {
+        "runName": "before-spacer",
+        "sessionId": "51d341ba-e368-43ec-8578-9cefc0ea2109",
+        "threadId": "01a16257-171b-7510-8c8b-4043ccb6e2a5",
+        "elapsedMs": 148192,
+        "startedAt": "2026-10-22T06:40:36.869Z",
+        "completedAt": "2026-10-22T06:43:05.101Z",
+        "error": null,
+        "sdkCumulativeUsage": {
+          "inputTokens": 1391320,
+          "cachedInputTokens": 1344128,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 22128,
+          "reasoningOutputTokens": 8846
+        },
+        "usageDelta": {
+          "inputTokens": 1391320,
+          "cachedInputTokens": 1344128,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 22128,
+          "reasoningOutputTokens": 8846
+        },
+        "commandCount": 46,
+        "nonzeroCommandCount": 2,
+        "nativeToolCalls": {
+          "exec_command": 46,
+          "view_image": 2
+        },
+        "modelResponseCount": 39,
+        "agentOperations": {
+          "capabilities": 1,
+          "design": 3,
+          "build": 2,
+          "validate": 2,
+          "inspect": 1,
+          "checkpoint": 1
+        },
+        "buildStatuses": {
+          "draft": 1,
+          "awaiting-visual-review": 1
+        },
+        "legacyOperations": {
+          "measure": 3
+        },
+        "nativeImageCount": 2
+      },
+      {
+        "runName": "before-document-only",
+        "sessionId": "51d341ba-e368-43ec-8578-9cefc0ea2109",
+        "threadId": "01a16257-171b-7510-8c8b-4043ccb6e2a5",
+        "elapsedMs": 25118,
+        "startedAt": "2026-10-22T06:44:00.601Z",
+        "completedAt": "2026-10-22T06:44:25.737Z",
+        "error": null,
+        "sdkCumulativeUsage": {
+          "inputTokens": 1835404,
+          "cachedInputTokens": 1781504,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 26929,
+          "reasoningOutputTokens": 10457
+        },
+        "usageDelta": {
+          "inputTokens": 444084,
+          "cachedInputTokens": 437376,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 4801,
+          "reasoningOutputTokens": 1611
+        },
+        "commandCount": 7,
+        "nonzeroCommandCount": 0,
+        "nativeToolCalls": {
+          "exec_command": 7
+        },
+        "modelResponseCount": 6,
+        "agentOperations": {
+          "context": 1
+        },
+        "buildStatuses": {},
+        "legacyOperations": {},
+        "nativeImageCount": 0
+      },
+      {
+        "runName": "before-repeat-evidence",
+        "sessionId": "51d341ba-e368-43ec-8578-9cefc0ea2109",
+        "threadId": "01a16257-171b-7510-8c8b-4043ccb6e2a5",
+        "elapsedMs": 11355,
+        "startedAt": "2026-10-22T06:45:32.893Z",
+        "completedAt": "2026-10-22T06:45:44.276Z",
+        "error": null,
+        "sdkCumulativeUsage": {
+          "inputTokens": 2083126,
+          "cachedInputTokens": 2024192,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 28662,
+          "reasoningOutputTokens": 10946
+        },
+        "usageDelta": {
+          "inputTokens": 247722,
+          "cachedInputTokens": 242688,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 1733,
+          "reasoningOutputTokens": 489
+        },
+        "commandCount": 2,
+        "nonzeroCommandCount": 0,
+        "nativeToolCalls": {
+          "exec_command": 2
+        },
+        "modelResponseCount": 3,
+        "agentOperations": {
+          "context": 1
+        },
+        "buildStatuses": {},
+        "legacyOperations": {},
+        "nativeImageCount": 0
+      },
+      {
+        "runName": "after-spacer",
+        "sessionId": "4e90943f-c0fa-4af7-ac91-f15e3c2341f3",
+        "threadId": "01a1625c-317f-7e52-b020-2163e05e44ea",
+        "elapsedMs": 241118,
+        "startedAt": "2026-10-22T06:46:11.483Z",
+        "completedAt": "2026-10-22T06:50:12.652Z",
+        "error": null,
+        "sdkCumulativeUsage": {
+          "inputTokens": 2695450,
+          "cachedInputTokens": 2633088,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 31708,
+          "reasoningOutputTokens": 13807
+        },
+        "usageDelta": {
+          "inputTokens": 2695450,
+          "cachedInputTokens": 2633088,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 31708,
+          "reasoningOutputTokens": 13807
+        },
+        "commandCount": 63,
+        "nonzeroCommandCount": 2,
+        "nativeToolCalls": {
+          "exec_command": 63,
+          "view_image": 3
+        },
+        "modelResponseCount": 58,
+        "agentOperations": {
+          "capabilities": 2,
+          "design": 3,
+          "build": 4,
+          "validate": 5,
+          "inspect": 7
+        },
+        "buildStatuses": {
+          "draft": 1,
+          "awaiting-visual-review": 3
+        },
+        "legacyOperations": {
+          "measure": 12
+        },
+        "nativeImageCount": 3
+      },
+      {
+        "runName": "after-document-only",
+        "sessionId": "4e90943f-c0fa-4af7-ac91-f15e3c2341f3",
+        "threadId": "01a1625c-317f-7e52-b020-2163e05e44ea",
+        "elapsedMs": 33873,
+        "startedAt": "2026-10-22T06:50:44.288Z",
+        "completedAt": "2026-10-22T06:51:18.184Z",
+        "error": null,
+        "sdkCumulativeUsage": {
+          "inputTokens": 3373497,
+          "cachedInputTokens": 3305728,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 37907,
+          "reasoningOutputTokens": 16813
+        },
+        "usageDelta": {
+          "inputTokens": 678047,
+          "cachedInputTokens": 672640,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 6199,
+          "reasoningOutputTokens": 3006
+        },
+        "commandCount": 6,
+        "nonzeroCommandCount": 0,
+        "nativeToolCalls": {
+          "exec_command": 6
+        },
+        "modelResponseCount": 7,
+        "agentOperations": {
+          "context": 1
+        },
+        "buildStatuses": {},
+        "legacyOperations": {},
+        "nativeImageCount": 0
+      },
+      {
+        "runName": "after-repeat-evidence",
+        "sessionId": "4e90943f-c0fa-4af7-ac91-f15e3c2341f3",
+        "threadId": "01a1625c-317f-7e52-b020-2163e05e44ea",
+        "elapsedMs": 8549,
+        "startedAt": "2026-10-22T06:51:56.136Z",
+        "completedAt": "2026-10-22T06:52:04.702Z",
+        "error": null,
+        "sdkCumulativeUsage": {
+          "inputTokens": 3581762,
+          "cachedInputTokens": 3509888,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 39496,
+          "reasoningOutputTokens": 17381
+        },
+        "usageDelta": {
+          "inputTokens": 208265,
+          "cachedInputTokens": 204160,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 1589,
+          "reasoningOutputTokens": 568
+        },
+        "commandCount": 3,
+        "nonzeroCommandCount": 0,
+        "nativeToolCalls": {
+          "exec_command": 3
+        },
+        "modelResponseCount": 2,
+        "agentOperations": {
+          "context": 1
+        },
+        "buildStatuses": {},
+        "legacyOperations": {},
+        "nativeImageCount": 0
+      },
+      {
+        "runName": "before-inspection",
+        "sessionId": "0fa84633-4f71-4cae-9c4c-e7fb2eee4b2e",
+        "threadId": "01a16261-fa87-7cc0-be4e-439284a51fc7",
+        "elapsedMs": 341825,
+        "startedAt": "2026-10-22T06:52:30.494Z",
+        "completedAt": "2026-10-22T06:58:12.334Z",
+        "error": null,
+        "sdkCumulativeUsage": {
+          "inputTokens": 2754812,
+          "cachedInputTokens": 2709248,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 56443,
+          "reasoningOutputTokens": 27121
+        },
+        "usageDelta": {
+          "inputTokens": 2754812,
+          "cachedInputTokens": 2709248,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 56443,
+          "reasoningOutputTokens": 27121
+        },
+        "commandCount": 46,
+        "nonzeroCommandCount": 1,
+        "nativeToolCalls": {
+          "exec_command": 47,
+          "view_image": 18
+        },
+        "modelResponseCount": 53,
+        "agentOperations": {
+          "context": 1,
+          "inspect": 1,
+          "checkpoint": 1
+        },
+        "buildStatuses": {},
+        "legacyOperations": {
+          "measure": 4
+        },
+        "nativeImageCount": 18
+      },
+      {
+        "runName": "after-inspection",
+        "sessionId": "5a169ef7-a264-4864-8c6d-0e003c8bc159",
+        "threadId": "01a16267-82d4-7df2-a6db-f976562feb7c",
+        "elapsedMs": 177396,
+        "startedAt": "2026-10-22T06:58:33.115Z",
+        "completedAt": "2026-10-22T07:01:30.528Z",
+        "error": null,
+        "sdkCumulativeUsage": {
+          "inputTokens": 1499147,
+          "cachedInputTokens": 1445504,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 32340,
+          "reasoningOutputTokens": 13254
+        },
+        "usageDelta": {
+          "inputTokens": 1499147,
+          "cachedInputTokens": 1445504,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 32340,
+          "reasoningOutputTokens": 13254
+        },
+        "commandCount": 44,
+        "nonzeroCommandCount": 2,
+        "nativeToolCalls": {
+          "exec_command": 45,
+          "view_image": 8
+        },
+        "modelResponseCount": 31,
+        "agentOperations": {
+          "context": 1,
+          "inspect": 10,
+          "capabilities": 1,
+          "preview": 2
+        },
+        "buildStatuses": {},
+        "legacyOperations": {},
+        "nativeImageCount": 8
+      },
+      {
+        "runName": "before-declaration-only",
+        "sessionId": "51d341ba-e368-43ec-8578-9cefc0ea2109",
+        "threadId": "01a16257-171b-7510-8c8b-4043ccb6e2a5",
+        "elapsedMs": 53292,
+        "startedAt": "2026-10-22T07:01:55.511Z",
+        "completedAt": "2026-10-22T07:02:48.833Z",
+        "error": null,
+        "sdkCumulativeUsage": {
+          "inputTokens": 3638857,
+          "cachedInputTokens": 3568128,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 38005,
+          "reasoningOutputTokens": 15418
+        },
+        "usageDelta": {
+          "inputTokens": 1555731,
+          "cachedInputTokens": 1543936,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 9343,
+          "reasoningOutputTokens": 4472
+        },
+        "commandCount": 17,
+        "nonzeroCommandCount": 2,
+        "nativeToolCalls": {
+          "exec_command": 17
+        },
+        "modelResponseCount": 16,
+        "agentOperations": {
+          "context": 1,
+          "validate": 1
+        },
+        "buildStatuses": {},
+        "legacyOperations": {},
+        "nativeImageCount": 0
+      },
+      {
+        "runName": "after-declaration-only",
+        "sessionId": "4e90943f-c0fa-4af7-ac91-f15e3c2341f3",
+        "threadId": "01a1625c-317f-7e52-b020-2163e05e44ea",
+        "elapsedMs": 104953,
+        "startedAt": "2026-10-22T07:03:26.905Z",
+        "completedAt": "2026-10-22T07:05:11.873Z",
+        "error": null,
+        "sdkCumulativeUsage": {
+          "inputTokens": 6637047,
+          "cachedInputTokens": 6548864,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 54171,
+          "reasoningOutputTokens": 24668
+        },
+        "usageDelta": {
+          "inputTokens": 3055285,
+          "cachedInputTokens": 3038976,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 14675,
+          "reasoningOutputTokens": 7287
+        },
+        "commandCount": 31,
+        "nonzeroCommandCount": 1,
+        "nativeToolCalls": {
+          "exec_command": 31
+        },
+        "modelResponseCount": 25,
+        "agentOperations": {
+          "context": 1,
+          "capabilities": 1,
+          "inspect": 4,
+          "validate": 1,
+          "build": 1
+        },
+        "buildStatuses": {
+          "awaiting-visual-review": 1
+        },
+        "legacyOperations": {
+          "measure": 2
+        },
+        "nativeImageCount": 0
+      },
+      {
+        "runName": "after-prompt-fix-summary",
+        "sessionId": "4e90943f-c0fa-4af7-ac91-f15e3c2341f3",
+        "threadId": "01a1625c-317f-7e52-b020-2163e05e44ea",
+        "elapsedMs": 10205,
+        "startedAt": "2026-10-22T07:05:33.764Z",
+        "completedAt": "2026-10-22T07:05:43.993Z",
+        "error": null,
+        "sdkCumulativeUsage": {
+          "inputTokens": 6915434,
+          "cachedInputTokens": 6822528,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 55846,
+          "reasoningOutputTokens": 25361
+        },
+        "usageDelta": {
+          "inputTokens": 278387,
+          "cachedInputTokens": 273664,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 1675,
+          "reasoningOutputTokens": 693
+        },
+        "commandCount": 3,
+        "nonzeroCommandCount": 0,
+        "nativeToolCalls": {
+          "exec_command": 3
+        },
+        "modelResponseCount": 2,
+        "agentOperations": {
+          "context": 1
+        },
+        "buildStatuses": {},
+        "legacyOperations": {},
+        "nativeImageCount": 0
+      }
+    ]
+  },
+  "geometry": {
+    "before": {
+      "schema": "brep-measurements/v1",
+      "input": {
+        "path": "<repository>/workspace/rfc-33-validation/snapshots/before/workspace/sessions/51d341ba-e368-43ec-8578-9cefc0ea2109/design-builds/576dafdc689e9eed9567ec76cc7b883f6eb2e44b0d120c2d86d5189408c7449a/attempts/a799b766-752c-4e59-b81e-54dffb77854d/body.step",
+        "sha256": "6ae5f7a482b9249f0ddb6bc34ec8920334b7f6046a4928c031d331de2fcccfc1",
+        "format": "STEP"
+      },
+      "units": {
+        "length": "mm",
+        "area": "mm2",
+        "volume": "mm3"
+      },
+      "coordinate_frame": "input-part",
+      "world_bounds_mm": {
+        "min": [
+          -16.0,
+          -10.0,
+          0.0
+        ],
+        "max": [
+          16.0,
+          10.0,
+          6.0
+        ],
+        "size": [
+          32.0,
+          20.0,
+          6.0
+        ]
+      },
+      "solid_count": 1,
+      "sum_solid_volume_mm3": 3717.039831411925,
+      "sections": [
+        {
+          "schema": "brep-section/v1",
+          "label": "z=0.1",
+          "units": {
+            "length": "mm",
+            "area": "mm2"
+          },
+          "coordinate_frame": "input-part",
+          "plane": {
+            "origin_mm": [
+              0.0,
+              0.0,
+              0.1
+            ],
+            "u_dir": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "v_dir": [
+              -0.0,
+              1.0,
+              0.0
+            ],
+            "normal_dir": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "status": "material",
+          "outer_envelope": {
+            "min_uv_mm": [
+              -16.0,
+              -10.0
+            ],
+            "max_uv_mm": [
+              16.0,
+              10.0
+            ],
+            "width_u_mm": 32.0,
+            "depth_v_mm": 20.0,
+            "center_uv_mm": [
+              0.0,
+              0.0
+            ],
+            "center_world_mm": [
+              0.0,
+              0.0,
+              0.1
+            ]
+          },
+          "material_island_count": 1,
+          "hole_count": 1,
+          "sum_material_area_mm2": 619.5066385686537,
+          "material_islands": [
+            {
+              "solid_index": 0,
+              "island_index": 0,
+              "material_area_mm2": 619.5066385686537,
+              "material_centroid_world_mm": [
+                -8.881784197001252e-16,
+                5.505356874832775e-16,
+                0.1
+              ],
+              "relative_area_error_estimate": 2.0645088280622907e-16,
+              "outer": {
+                "envelope": {
+                  "min_uv_mm": [
+                    -16.0,
+                    -10.0
+                  ],
+                  "max_uv_mm": [
+                    16.0,
+                    10.0
+                  ],
+                  "width_u_mm": 32.0,
+                  "depth_v_mm": 20.0,
+                  "center_uv_mm": [
+                    0.0,
+                    0.0
+                  ],
+                  "center_world_mm": [
+                    0.0,
+                    0.0,
+                    0.1
+                  ]
+                },
+                "enclosed_area_mm2": 639.1415926535898,
+                "relative_area_error_estimate": 2.0010854231190315e-16,
+                "perimeter_mm": 102.28318530718083
+              },
+              "holes": [
+                {
+                  "envelope": {
+                    "min_uv_mm": [
+                      -2.5,
+                      -2.5
+                    ],
+                    "max_uv_mm": [
+                      2.5,
+                      2.5
+                    ],
+                    "width_u_mm": 5.0,
+                    "depth_v_mm": 5.0,
+                    "center_uv_mm": [
+                      0.0,
+                      0.0
+                    ],
+                    "center_world_mm": [
+                      0.0,
+                      0.0,
+                      0.1
+                    ]
+                  },
+                  "enclosed_area_mm2": 19.634954084936204,
+                  "relative_area_error_estimate": 1.894780628693601e-16,
+                  "perimeter_mm": 15.707963267948966
+                }
+              ]
+            }
+          ],
+          "notes": [
+            "Coordinates are the input part coordinates; no print-pose transform is applied.",
+            "BRep intersections and bounds retain kernel precision; areas use adaptive integration with relative target 1e-9, not mesh sampling.",
+            "Width u and depth v follow the reported plane axes; center is the outer bounds midpoint, not a centroid.",
+            "Material islands are section faces per solid; holes are their bounded inner loops, not proven through passages.",
+            "Areas are summed per solid without unioning overlaps; overlapping solids can double count material.",
+            "Empty means no positive-area section returned; a tangent plane may still touch an edge or point. Inspect nearby specified planes when needed.",
+            "Finite sections do not prove global wall thickness, connectivity, or satisfaction of unsampled requirements."
+          ]
+        },
+        {
+          "schema": "brep-section/v1",
+          "label": "z=3",
+          "units": {
+            "length": "mm",
+            "area": "mm2"
+          },
+          "coordinate_frame": "input-part",
+          "plane": {
+            "origin_mm": [
+              0.0,
+              0.0,
+              3.0
+            ],
+            "u_dir": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "v_dir": [
+              -0.0,
+              1.0,
+              0.0
+            ],
+            "normal_dir": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "status": "material",
+          "outer_envelope": {
+            "min_uv_mm": [
+              -16.0,
+              -10.0
+            ],
+            "max_uv_mm": [
+              16.0,
+              10.0
+            ],
+            "width_u_mm": 32.0,
+            "depth_v_mm": 20.0,
+            "center_uv_mm": [
+              0.0,
+              0.0
+            ],
+            "center_world_mm": [
+              0.0,
+              0.0,
+              3.0
+            ]
+          },
+          "material_island_count": 1,
+          "hole_count": 1,
+          "sum_material_area_mm2": 619.5066385686537,
+          "material_islands": [
+            {
+              "solid_index": 0,
+              "island_index": 0,
+              "material_area_mm2": 619.5066385686537,
+              "material_centroid_world_mm": [
+                -8.881784197001252e-16,
+                5.505356874832775e-16,
+                3.0
+              ],
+              "relative_area_error_estimate": 2.0645088280622907e-16,
+              "outer": {
+                "envelope": {
+                  "min_uv_mm": [
+                    -16.0,
+                    -10.0
+                  ],
+                  "max_uv_mm": [
+                    16.0,
+                    10.0
+                  ],
+                  "width_u_mm": 32.0,
+                  "depth_v_mm": 20.0,
+                  "center_uv_mm": [
+                    0.0,
+                    0.0
+                  ],
+                  "center_world_mm": [
+                    0.0,
+                    0.0,
+                    3.0
+                  ]
+                },
+                "enclosed_area_mm2": 639.1415926535898,
+                "relative_area_error_estimate": 2.0010854231190315e-16,
+                "perimeter_mm": 102.28318530718083
+              },
+              "holes": [
+                {
+                  "envelope": {
+                    "min_uv_mm": [
+                      -2.5,
+                      -2.5
+                    ],
+                    "max_uv_mm": [
+                      2.5,
+                      2.5
+                    ],
+                    "width_u_mm": 5.0,
+                    "depth_v_mm": 5.0,
+                    "center_uv_mm": [
+                      0.0,
+                      0.0
+                    ],
+                    "center_world_mm": [
+                      0.0,
+                      0.0,
+                      3.0
+                    ]
+                  },
+                  "enclosed_area_mm2": 19.634954084936204,
+                  "relative_area_error_estimate": 1.894780628693601e-16,
+                  "perimeter_mm": 15.707963267948966
+                }
+              ]
+            }
+          ],
+          "notes": [
+            "Coordinates are the input part coordinates; no print-pose transform is applied.",
+            "BRep intersections and bounds retain kernel precision; areas use adaptive integration with relative target 1e-9, not mesh sampling.",
+            "Width u and depth v follow the reported plane axes; center is the outer bounds midpoint, not a centroid.",
+            "Material islands are section faces per solid; holes are their bounded inner loops, not proven through passages.",
+            "Areas are summed per solid without unioning overlaps; overlapping solids can double count material.",
+            "Empty means no positive-area section returned; a tangent plane may still touch an edge or point. Inspect nearby specified planes when needed.",
+            "Finite sections do not prove global wall thickness, connectivity, or satisfaction of unsampled requirements."
+          ]
+        },
+        {
+          "schema": "brep-section/v1",
+          "label": "z=5.9",
+          "units": {
+            "length": "mm",
+            "area": "mm2"
+          },
+          "coordinate_frame": "input-part",
+          "plane": {
+            "origin_mm": [
+              0.0,
+              0.0,
+              5.9
+            ],
+            "u_dir": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "v_dir": [
+              -0.0,
+              1.0,
+              0.0
+            ],
+            "normal_dir": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "status": "material",
+          "outer_envelope": {
+            "min_uv_mm": [
+              -16.0,
+              -10.0
+            ],
+            "max_uv_mm": [
+              16.0,
+              10.0
+            ],
+            "width_u_mm": 32.0,
+            "depth_v_mm": 20.0,
+            "center_uv_mm": [
+              0.0,
+              0.0
+            ],
+            "center_world_mm": [
+              0.0,
+              0.0,
+              5.9
+            ]
+          },
+          "material_island_count": 1,
+          "hole_count": 1,
+          "sum_material_area_mm2": 619.5066385686537,
+          "material_islands": [
+            {
+              "solid_index": 0,
+              "island_index": 0,
+              "material_area_mm2": 619.5066385686537,
+              "material_centroid_world_mm": [
+                -8.881784197001252e-16,
+                5.505356874832775e-16,
+                5.9
+              ],
+              "relative_area_error_estimate": 2.0645088280622907e-16,
+              "outer": {
+                "envelope": {
+                  "min_uv_mm": [
+                    -16.0,
+                    -10.0
+                  ],
+                  "max_uv_mm": [
+                    16.0,
+                    10.0
+                  ],
+                  "width_u_mm": 32.0,
+                  "depth_v_mm": 20.0,
+                  "center_uv_mm": [
+                    0.0,
+                    0.0
+                  ],
+                  "center_world_mm": [
+                    0.0,
+                    0.0,
+                    5.9
+                  ]
+                },
+                "enclosed_area_mm2": 639.1415926535898,
+                "relative_area_error_estimate": 2.0010854231190315e-16,
+                "perimeter_mm": 102.28318530718083
+              },
+              "holes": [
+                {
+                  "envelope": {
+                    "min_uv_mm": [
+                      -2.5,
+                      -2.5
+                    ],
+                    "max_uv_mm": [
+                      2.5,
+                      2.5
+                    ],
+                    "width_u_mm": 5.0,
+                    "depth_v_mm": 5.0,
+                    "center_uv_mm": [
+                      0.0,
+                      0.0
+                    ],
+                    "center_world_mm": [
+                      0.0,
+                      0.0,
+                      5.9
+                    ]
+                  },
+                  "enclosed_area_mm2": 19.634954084936204,
+                  "relative_area_error_estimate": 1.894780628693601e-16,
+                  "perimeter_mm": 15.707963267948966
+                }
+              ]
+            }
+          ],
+          "notes": [
+            "Coordinates are the input part coordinates; no print-pose transform is applied.",
+            "BRep intersections and bounds retain kernel precision; areas use adaptive integration with relative target 1e-9, not mesh sampling.",
+            "Width u and depth v follow the reported plane axes; center is the outer bounds midpoint, not a centroid.",
+            "Material islands are section faces per solid; holes are their bounded inner loops, not proven through passages.",
+            "Areas are summed per solid without unioning overlaps; overlapping solids can double count material.",
+            "Empty means no positive-area section returned; a tangent plane may still touch an edge or point. Inspect nearby specified planes when needed.",
+            "Finite sections do not prove global wall thickness, connectivity, or satisfaction of unsampled requirements."
+          ]
+        }
+      ],
+      "notes": [
+        "Coordinates are the input part coordinates; no print-pose transform is applied.",
+        "BRep intersections and bounds retain kernel precision; areas use adaptive integration with relative target 1e-9, not mesh sampling.",
+        "Width u and depth v follow the reported plane axes; center is the outer bounds midpoint, not a centroid.",
+        "Material islands are section faces per solid; holes are their bounded inner loops, not proven through passages.",
+        "Areas are summed per solid without unioning overlaps; overlapping solids can double count material.",
+        "Empty means no positive-area section returned; a tangent plane may still touch an edge or point. Inspect nearby specified planes when needed.",
+        "Finite sections do not prove global wall thickness, connectivity, or satisfaction of unsampled requirements."
+      ],
+      "expectedVolumeMm3": 3717.039831411921,
+      "volumeErrorMm3": 4.092726157978177e-12,
+      "compile": {
+        "status": "awaiting-visual-review",
+        "pass": true,
+        "visualReviewRequired": true,
+        "issues": [],
+        "artifactStages": {
+          "cadExport": {
+            "elapsedMs": 51,
+            "status": "passed"
+          },
+          "display": {
+            "elapsedMs": 33,
+            "status": "passed"
+          },
+          "geometry": {
+            "elapsedMs": 1,
+            "status": "passed"
+          },
+          "manufacturing": {
+            "status": "passed"
+          },
+          "preview": {
+            "status": "passed"
+          },
+          "tessellation": {
+            "elapsedMs": 0,
+            "status": "passed"
+          },
+          "visualReview": {
+            "status": "pending"
+          }
+        }
+      },
+      "boundReport": {
+        "path": "<repository>/workspace/rfc-33-validation/snapshots/before/workspace/sessions/51d341ba-e368-43ec-8578-9cefc0ea2109/.a3d-agent/runs/9a5cbab9-8d4c-4833-91eb-879519b65f6d.json",
+        "sha256": "5fe19da82c0b9a2bd63a81e9e1243c02f88aa21e6a2cd15ca77226ae0b26ced0"
+      },
+      "originalReportHashMatches": true
+    },
+    "after": {
+      "schema": "brep-measurements/v1",
+      "input": {
+        "path": "<repository>/workspace/rfc-33-validation/snapshots/after/workspace/sessions/4e90943f-c0fa-4af7-ac91-f15e3c2341f3/design-builds/022b1ce2ed5ea19dc0a0b85c2552409b14835862a8cf6614667b4239aec023c7/attempts/df4f2521-0254-4bc0-935a-ee2e3af75d7f/locating-pad.step",
+        "sha256": "36870a54370f9fe34616b6916e35fcc7b4dc9247b8f2e16d331e8a5a94585a62",
+        "format": "STEP"
+      },
+      "units": {
+        "length": "mm",
+        "area": "mm2",
+        "volume": "mm3"
+      },
+      "coordinate_frame": "input-part",
+      "world_bounds_mm": {
+        "min": [
+          -16.0,
+          -10.0,
+          0.0
+        ],
+        "max": [
+          16.0,
+          10.0,
+          6.0
+        ],
+        "size": [
+          32.0,
+          20.0,
+          6.0
+        ]
+      },
+      "solid_count": 1,
+      "sum_solid_volume_mm3": 3717.039831411925,
+      "sections": [
+        {
+          "schema": "brep-section/v1",
+          "label": "z=0.1",
+          "units": {
+            "length": "mm",
+            "area": "mm2"
+          },
+          "coordinate_frame": "input-part",
+          "plane": {
+            "origin_mm": [
+              0.0,
+              0.0,
+              0.1
+            ],
+            "u_dir": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "v_dir": [
+              -0.0,
+              1.0,
+              0.0
+            ],
+            "normal_dir": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "status": "material",
+          "outer_envelope": {
+            "min_uv_mm": [
+              -16.0,
+              -10.0
+            ],
+            "max_uv_mm": [
+              16.0,
+              10.0
+            ],
+            "width_u_mm": 32.0,
+            "depth_v_mm": 20.0,
+            "center_uv_mm": [
+              0.0,
+              0.0
+            ],
+            "center_world_mm": [
+              0.0,
+              0.0,
+              0.1
+            ]
+          },
+          "material_island_count": 1,
+          "hole_count": 1,
+          "sum_material_area_mm2": 619.5066385686537,
+          "material_islands": [
+            {
+              "solid_index": 0,
+              "island_index": 0,
+              "material_area_mm2": 619.5066385686537,
+              "material_centroid_world_mm": [
+                -8.881784197001252e-16,
+                4.824997541973109e-16,
+                0.1
+              ],
+              "relative_area_error_estimate": 2.0645088280622907e-16,
+              "outer": {
+                "envelope": {
+                  "min_uv_mm": [
+                    -16.0,
+                    -10.0
+                  ],
+                  "max_uv_mm": [
+                    16.0,
+                    10.0
+                  ],
+                  "width_u_mm": 32.0,
+                  "depth_v_mm": 20.0,
+                  "center_uv_mm": [
+                    0.0,
+                    0.0
+                  ],
+                  "center_world_mm": [
+                    0.0,
+                    0.0,
+                    0.1
+                  ]
+                },
+                "enclosed_area_mm2": 639.1415926535898,
+                "relative_area_error_estimate": 2.0010854231190315e-16,
+                "perimeter_mm": 102.28318530718083
+              },
+              "holes": [
+                {
+                  "envelope": {
+                    "min_uv_mm": [
+                      -2.5,
+                      -2.5
+                    ],
+                    "max_uv_mm": [
+                      2.5,
+                      2.5
+                    ],
+                    "width_u_mm": 5.0,
+                    "depth_v_mm": 5.0,
+                    "center_uv_mm": [
+                      0.0,
+                      0.0
+                    ],
+                    "center_world_mm": [
+                      0.0,
+                      0.0,
+                      0.1
+                    ]
+                  },
+                  "enclosed_area_mm2": 19.634954084936204,
+                  "relative_area_error_estimate": 1.894780628693601e-16,
+                  "perimeter_mm": 15.707963267948966
+                }
+              ]
+            }
+          ],
+          "notes": [
+            "Coordinates are the input part coordinates; no print-pose transform is applied.",
+            "BRep intersections and bounds retain kernel precision; areas use adaptive integration with relative target 1e-9, not mesh sampling.",
+            "Width u and depth v follow the reported plane axes; center is the outer bounds midpoint, not a centroid.",
+            "Material islands are section faces per solid; holes are their bounded inner loops, not proven through passages.",
+            "Areas are summed per solid without unioning overlaps; overlapping solids can double count material.",
+            "Empty means no positive-area section returned; a tangent plane may still touch an edge or point. Inspect nearby specified planes when needed.",
+            "Finite sections do not prove global wall thickness, connectivity, or satisfaction of unsampled requirements."
+          ]
+        },
+        {
+          "schema": "brep-section/v1",
+          "label": "z=3",
+          "units": {
+            "length": "mm",
+            "area": "mm2"
+          },
+          "coordinate_frame": "input-part",
+          "plane": {
+            "origin_mm": [
+              0.0,
+              0.0,
+              3.0
+            ],
+            "u_dir": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "v_dir": [
+              -0.0,
+              1.0,
+              0.0
+            ],
+            "normal_dir": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "status": "material",
+          "outer_envelope": {
+            "min_uv_mm": [
+              -16.0,
+              -10.0
+            ],
+            "max_uv_mm": [
+              16.0,
+              10.0
+            ],
+            "width_u_mm": 32.0,
+            "depth_v_mm": 20.0,
+            "center_uv_mm": [
+              0.0,
+              0.0
+            ],
+            "center_world_mm": [
+              0.0,
+              0.0,
+              3.0
+            ]
+          },
+          "material_island_count": 1,
+          "hole_count": 1,
+          "sum_material_area_mm2": 619.5066385686537,
+          "material_islands": [
+            {
+              "solid_index": 0,
+              "island_index": 0,
+              "material_area_mm2": 619.5066385686537,
+              "material_centroid_world_mm": [
+                -8.881784197001252e-16,
+                4.824997541973109e-16,
+                3.0
+              ],
+              "relative_area_error_estimate": 2.0645088280622907e-16,
+              "outer": {
+                "envelope": {
+                  "min_uv_mm": [
+                    -16.0,
+                    -10.0
+                  ],
+                  "max_uv_mm": [
+                    16.0,
+                    10.0
+                  ],
+                  "width_u_mm": 32.0,
+                  "depth_v_mm": 20.0,
+                  "center_uv_mm": [
+                    0.0,
+                    0.0
+                  ],
+                  "center_world_mm": [
+                    0.0,
+                    0.0,
+                    3.0
+                  ]
+                },
+                "enclosed_area_mm2": 639.1415926535898,
+                "relative_area_error_estimate": 2.0010854231190315e-16,
+                "perimeter_mm": 102.28318530718083
+              },
+              "holes": [
+                {
+                  "envelope": {
+                    "min_uv_mm": [
+                      -2.5,
+                      -2.5
+                    ],
+                    "max_uv_mm": [
+                      2.5,
+                      2.5
+                    ],
+                    "width_u_mm": 5.0,
+                    "depth_v_mm": 5.0,
+                    "center_uv_mm": [
+                      0.0,
+                      0.0
+                    ],
+                    "center_world_mm": [
+                      0.0,
+                      0.0,
+                      3.0
+                    ]
+                  },
+                  "enclosed_area_mm2": 19.634954084936204,
+                  "relative_area_error_estimate": 1.894780628693601e-16,
+                  "perimeter_mm": 15.707963267948966
+                }
+              ]
+            }
+          ],
+          "notes": [
+            "Coordinates are the input part coordinates; no print-pose transform is applied.",
+            "BRep intersections and bounds retain kernel precision; areas use adaptive integration with relative target 1e-9, not mesh sampling.",
+            "Width u and depth v follow the reported plane axes; center is the outer bounds midpoint, not a centroid.",
+            "Material islands are section faces per solid; holes are their bounded inner loops, not proven through passages.",
+            "Areas are summed per solid without unioning overlaps; overlapping solids can double count material.",
+            "Empty means no positive-area section returned; a tangent plane may still touch an edge or point. Inspect nearby specified planes when needed.",
+            "Finite sections do not prove global wall thickness, connectivity, or satisfaction of unsampled requirements."
+          ]
+        },
+        {
+          "schema": "brep-section/v1",
+          "label": "z=5.9",
+          "units": {
+            "length": "mm",
+            "area": "mm2"
+          },
+          "coordinate_frame": "input-part",
+          "plane": {
+            "origin_mm": [
+              0.0,
+              0.0,
+              5.9
+            ],
+            "u_dir": [
+              1.0,
+              0.0,
+              -0.0
+            ],
+            "v_dir": [
+              -0.0,
+              1.0,
+              0.0
+            ],
+            "normal_dir": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "status": "material",
+          "outer_envelope": {
+            "min_uv_mm": [
+              -16.0,
+              -10.0
+            ],
+            "max_uv_mm": [
+              16.0,
+              10.0
+            ],
+            "width_u_mm": 32.0,
+            "depth_v_mm": 20.0,
+            "center_uv_mm": [
+              0.0,
+              0.0
+            ],
+            "center_world_mm": [
+              0.0,
+              0.0,
+              5.9
+            ]
+          },
+          "material_island_count": 1,
+          "hole_count": 1,
+          "sum_material_area_mm2": 619.5066385686537,
+          "material_islands": [
+            {
+              "solid_index": 0,
+              "island_index": 0,
+              "material_area_mm2": 619.5066385686537,
+              "material_centroid_world_mm": [
+                -8.881784197001252e-16,
+                4.824997541973109e-16,
+                5.9
+              ],
+              "relative_area_error_estimate": 2.0645088280622907e-16,
+              "outer": {
+                "envelope": {
+                  "min_uv_mm": [
+                    -16.0,
+                    -10.0
+                  ],
+                  "max_uv_mm": [
+                    16.0,
+                    10.0
+                  ],
+                  "width_u_mm": 32.0,
+                  "depth_v_mm": 20.0,
+                  "center_uv_mm": [
+                    0.0,
+                    0.0
+                  ],
+                  "center_world_mm": [
+                    0.0,
+                    0.0,
+                    5.9
+                  ]
+                },
+                "enclosed_area_mm2": 639.1415926535898,
+                "relative_area_error_estimate": 2.0010854231190315e-16,
+                "perimeter_mm": 102.28318530718083
+              },
+              "holes": [
+                {
+                  "envelope": {
+                    "min_uv_mm": [
+                      -2.5,
+                      -2.5
+                    ],
+                    "max_uv_mm": [
+                      2.5,
+                      2.5
+                    ],
+                    "width_u_mm": 5.0,
+                    "depth_v_mm": 5.0,
+                    "center_uv_mm": [
+                      0.0,
+                      0.0
+                    ],
+                    "center_world_mm": [
+                      0.0,
+                      0.0,
+                      5.9
+                    ]
+                  },
+                  "enclosed_area_mm2": 19.634954084936204,
+                  "relative_area_error_estimate": 1.894780628693601e-16,
+                  "perimeter_mm": 15.707963267948966
+                }
+              ]
+            }
+          ],
+          "notes": [
+            "Coordinates are the input part coordinates; no print-pose transform is applied.",
+            "BRep intersections and bounds retain kernel precision; areas use adaptive integration with relative target 1e-9, not mesh sampling.",
+            "Width u and depth v follow the reported plane axes; center is the outer bounds midpoint, not a centroid.",
+            "Material islands are section faces per solid; holes are their bounded inner loops, not proven through passages.",
+            "Areas are summed per solid without unioning overlaps; overlapping solids can double count material.",
+            "Empty means no positive-area section returned; a tangent plane may still touch an edge or point. Inspect nearby specified planes when needed.",
+            "Finite sections do not prove global wall thickness, connectivity, or satisfaction of unsampled requirements."
+          ]
+        }
+      ],
+      "notes": [
+        "Coordinates are the input part coordinates; no print-pose transform is applied.",
+        "BRep intersections and bounds retain kernel precision; areas use adaptive integration with relative target 1e-9, not mesh sampling.",
+        "Width u and depth v follow the reported plane axes; center is the outer bounds midpoint, not a centroid.",
+        "Material islands are section faces per solid; holes are their bounded inner loops, not proven through passages.",
+        "Areas are summed per solid without unioning overlaps; overlapping solids can double count material.",
+        "Empty means no positive-area section returned; a tangent plane may still touch an edge or point. Inspect nearby specified planes when needed.",
+        "Finite sections do not prove global wall thickness, connectivity, or satisfaction of unsampled requirements."
+      ],
+      "expectedVolumeMm3": 3717.039831411921,
+      "volumeErrorMm3": 4.092726157978177e-12,
+      "compile": {
+        "status": "awaiting-visual-review",
+        "pass": true,
+        "visualReviewRequired": true,
+        "issues": [],
+        "artifactStages": {
+          "cadExport": {
+            "elapsedMs": 35,
+            "status": "passed"
+          },
+          "display": {
+            "elapsedMs": 36,
+            "status": "passed"
+          },
+          "geometry": {
+            "elapsedMs": 1,
+            "status": "passed"
+          },
+          "manufacturing": {
+            "status": "passed"
+          },
+          "preview": {
+            "status": "passed"
+          },
+          "tessellation": {
+            "elapsedMs": 0,
+            "status": "passed"
+          },
+          "visualReview": {
+            "status": "pending"
+          }
+        }
+      },
+      "boundReport": {
+        "path": "<repository>/workspace/rfc-33-validation/snapshots/after/workspace/sessions/4e90943f-c0fa-4af7-ac91-f15e3c2341f3/.a3d-agent/runs/9ac3b4a0-1ec7-485a-98e8-ebe759995d93.json",
+        "sha256": "e628af64d92105eb92b2b860a3a76c43f154742de8f7057cf66a93e0e25525bb"
+      },
+      "originalReportHashMatches": true
+    }
+  },
+  "immutability": {
+    "after-declaration-only": {
+      "protectedCount": 28,
+      "changed": [
+        ".locating-pad_intent-history.json"
+      ],
+      "latestUnchanged": false
+    },
+    "after-inspection": {
+      "unchangedInputCount": 6,
+      "changed": [],
+      "latestUnchanged": true
+    },
+    "before-declaration-only": {
+      "protectedCount": 13,
+      "changed": [],
+      "latestUnchanged": true
+    },
+    "before-inspection": {
+      "unchangedInputCount": 6,
+      "changed": [],
+      "latestUnchanged": true
+    }
+  },
+  "inspectionRequests": [
+    {
+      "kind": "camera",
+      "id": "side-opening-with-cover",
+      "size": 900,
+      "partIds": [
+        "channel-body",
+        "outer-cover"
+      ],
+      "direction": [
+        -0.3993738214046239,
+        0.872606568448523,
+        0.2811731272315349
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "target": [
+        -1.2376907337030403,
+        16.597232349030534,
+        10.0
+      ],
+      "scope": {
+        "min": [
+          -12.429941436831456,
+          8.379996074263417,
+          5.0
+        ],
+        "max": [
+          7.153658903026691,
+          25.20810959758814,
+          15.0
+        ]
+      }
+    },
+    {
+      "kind": "camera",
+      "id": "side-opening-body-only",
+      "size": 900,
+      "partIds": [
+        "channel-body"
+      ],
+      "direction": [
+        -0.3993738214046239,
+        0.872606568448523,
+        0.2811731272315349
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "target": [
+        -1.2376907337030403,
+        16.597232349030534,
+        10.0
+      ],
+      "scope": {
+        "min": [
+          -12.429941436831456,
+          8.379996074263417,
+          5.0
+        ],
+        "max": [
+          7.153658903026691,
+          25.20810959758814,
+          15.0
+        ]
+      }
+    },
+    {
+      "kind": "section",
+      "id": "plan-z10-channel-turn",
+      "partIds": [
+        "channel-body"
+      ],
+      "plane": {
+        "origin": [
+          0.0,
+          0.0,
+          10.0
+        ],
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "u": [
+          0.7986355100472928,
+          0.6018150231520483,
+          0.0
+        ]
+      },
+      "label": "Local mid-height section through L-shaped channel"
+    },
+    {
+      "kind": "section",
+      "id": "vertical-local-x9-outlet",
+      "partIds": [
+        "channel-body",
+        "outer-cover"
+      ],
+      "plane": {
+        "origin": [
+          7.187719590425635,
+          5.416335208368435,
+          10.0
+        ],
+        "normal": [
+          0.7986355100472928,
+          0.6018150231520483,
+          0.0
+        ],
+        "u": [
+          -0.6018150231520483,
+          0.7986355100472928,
+          0.0
+        ]
+      },
+      "label": "Local vertical X=9 section through outlet and cover"
+    }
+  ],
+  "publishedImages": [
+    {
+      "file": "with-cover.png",
+      "sha256": "56dc728d96a5243232d7ffea0ec80945150fbd2368c39de735444dddcd8158c6",
+      "selectedObjects": [
+        "channel-body",
+        "outer-cover"
+      ],
+      "hiddenObjects": [],
+      "scope": "Selected STEP objects; other scene objects are hidden. Scope is a camera-space framing/depth clip from projected box corners, not strict world-space clipping at arbitrary angles.",
+      "request": {
+        "kind": "camera",
+        "id": "side-opening-with-cover",
+        "size": 900,
+        "partIds": [
+          "channel-body",
+          "outer-cover"
+        ],
+        "direction": [
+          -0.3993738214046239,
+          0.872606568448523,
+          0.2811731272315349
+        ],
+        "up": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "target": [
+          -1.2376907337030403,
+          16.597232349030534,
+          10.0
+        ],
+        "scope": {
+          "min": [
+            -12.429941436831456,
+            8.379996074263417,
+            5.0
+          ],
+          "max": [
+            7.153658903026691,
+            25.20810959758814,
+            15.0
+          ]
+        }
+      }
+    },
+    {
+      "file": "body-only.png",
+      "sha256": "c8e028f1783f918d4b818908ffa2189e195390272343dfa999e00a3ab3687f00",
+      "selectedObjects": [
+        "channel-body"
+      ],
+      "hiddenObjects": [
+        "outer-cover"
+      ],
+      "scope": "Selected STEP objects; other scene objects are hidden. Scope is a camera-space framing/depth clip from projected box corners, not strict world-space clipping at arbitrary angles.",
+      "request": {
+        "kind": "camera",
+        "id": "side-opening-body-only",
+        "size": 900,
+        "partIds": [
+          "channel-body"
+        ],
+        "direction": [
+          -0.3993738214046239,
+          0.872606568448523,
+          0.2811731272315349
+        ],
+        "up": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "target": [
+          -1.2376907337030403,
+          16.597232349030534,
+          10.0
+        ],
+        "scope": {
+          "min": [
+            -12.429941436831456,
+            8.379996074263417,
+            5.0
+          ],
+          "max": [
+            7.153658903026691,
+            25.20810959758814,
+            15.0
+          ]
+        }
+      }
+    },
+    {
+      "file": "l-channel-section.png",
+      "sha256": "3d82e5754bc8e359ef86edcaa8e77a2b7e3b5b6c1d4d4197a99d2394a482fdcd",
+      "selectedObjects": [
+        "channel-body"
+      ],
+      "hiddenObjects": [
+        "outer-cover"
+      ],
+      "scope": "Exact BRep section for the named object; image is a sampled outline and does not prove global wall thickness.",
+      "request": {
+        "kind": "section",
+        "id": "plan-z10-channel-turn",
+        "partIds": [
+          "channel-body"
+        ],
+        "plane": {
+          "origin": [
+            0.0,
+            0.0,
+            10.0
+          ],
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "u": [
+            0.7986355100472928,
+            0.6018150231520483,
+            0.0
+          ]
+        },
+        "label": "Local mid-height section through L-shaped channel"
+      }
+    }
+  ],
+  "traceHashes": [
+    {
+      "arm": "after",
+      "sessionId": "4e90943f-c0fa-4af7-ac91-f15e3c2341f3",
+      "file": "rollout-2026-10-22T14-46-11-01a1625c-317f-7e52-b020-2163e05e44ea.jsonl",
+      "sha256": "be5970ac52ac0a888dbc985a2477488d70536607432a70a56d4a166c9df501a7"
+    },
+    {
+      "arm": "after",
+      "sessionId": "5a169ef7-a264-4864-8c6d-0e003c8bc159",
+      "file": "rollout-2026-10-22T14-58-33-01a16267-82d4-7df2-a6db-f976562feb7c.jsonl",
+      "sha256": "3c3560c5cd1192177470945781c7bfb18acc41baae9377f36bcb3801abacd994"
+    },
+    {
+      "arm": "before",
+      "sessionId": "0fa84633-4f71-4cae-9c4c-e7fb2eee4b2e",
+      "file": "rollout-2026-10-22T14-52-30-01a16261-fa87-7cc0-be4e-439284a51fc7.jsonl",
+      "sha256": "c39597efc50706cee308a442e774e6e6bd9b33e285f60c4ccb804d0bcd052b43"
+    },
+    {
+      "arm": "before",
+      "sessionId": "51d341ba-e368-43ec-8578-9cefc0ea2109",
+      "file": "rollout-2026-10-22T14-40-37-01a16257-171b-7510-8c8b-4043ccb6e2a5.jsonl",
+      "sha256": "ad4221b9b8eb79ef09e798ef5715c74f11511d8b5295afaae304b581e4d82d0a"
+    }
+  ],
+  "promptFixRuntimeSha256": "9d4c095ec6360fc80a9f328e11b6d660e254decb3399cd550a57d7b458b5fb30",
+  "evidenceNotes": [
+    "Raw traces and full CAD artifacts are retained in the local evaluation workspace, not published; this file contains measured summaries and hashes, not fabricated raw logs.",
+    "The after declaration task changed the mutable intent-history ledger and latest run through one compile; original frozen intent, source and STEP files remained unchanged.",
+    "The prompt-fix supplemental run used the updated runtime prompt with the frozen after CLI/skills, isolating prompt behavior; it was not a second full performance comparison."
+  ]
+}

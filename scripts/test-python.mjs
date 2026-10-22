@@ -77,7 +77,7 @@ const suites = {
     methodName('test_surface_shell_recompiles_changed_walls_without_rewriting_intent'),
     methodName('test_surface_shell_rejects_semantic_envelope_drift'),
   ],
-  'cpu-renderer': [moduleName('test_cpu_z_buffer')],
+  'cpu-renderer': [moduleName('test_cpu_z_buffer'), moduleName('test_preview_resource_limits')],
   'unit-a': unitA.map(moduleName),
   'unit-b': unitB.map(moduleName),
 };
@@ -87,7 +87,7 @@ function validateCoverage() {
     .filter((name) => /^test_.*\.py$/u.test(name))
     .map((name) => basename(name, '.py'))
     .sort();
-  const assigned = [...unitA, ...unitB, 'test_authoring_example', 'test_cpu_z_buffer'];
+  const assigned = [...unitA, ...unitB, 'test_authoring_example', 'test_cpu_z_buffer', 'test_preview_resource_limits'];
   const duplicates = assigned.filter((name, index) => assigned.indexOf(name) !== index);
   const missing = files.filter((name) => !assigned.includes(name));
   const unknown = assigned.filter((name) => !files.includes(name));

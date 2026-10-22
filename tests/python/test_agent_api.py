@@ -152,6 +152,154 @@ class AgentProtocolTests(unittest.TestCase):
 
 
 class AgentOperationsTests(unittest.TestCase):
+    def test_preview_os_memory_boundary_blocks_allocation_after_fixed_runtime_imports(self):
+        runtime_path = ROOT / "skills" / "a3d-public"
+        script = """from preview_resource_limits import install_preview_memory_limit
+import json
+boundary = install_preview_memory_limit(64 * 1024 * 1024)
+print(json.dumps(boundary))
+try:
+    bytearray(256 * 1024 * 1024)
+except MemoryError:
+    print("MEMORY_LIMIT_ENFORCED")
+else:
+    raise SystemExit("memory boundary allowed a 256MiB allocation")
+"""
+        result = subprocess.run([sys.executable, "-B", "-c", script], cwd=self.root,
+            env={**os.environ, "PYTHONPATH": str(runtime_path)}, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        boundary = json.loads(result.stdout.splitlines()[0])
+        self.assertEqual(boundary["budgetBytes"], 64 * 1024 * 1024)
+        self.assertGreater(boundary["limitBytes"], boundary["baselineBytes"])
+        self.assertIn("brep_tessellation", boundary["baselineModules"])
+        self.assertIsNotNone(boundary["availableBytes"])
+        self.assertIn("MEMORY_LIMIT_ENFORCED", result.stdout)
+
+    def test_selected_scene_step_bytes_are_aggregated_deduplicated_and_preflighted(self):
+        import display_step
+        import agent_preview
+
+        source = self.root / "model.py"
+        source.write_text("# source")
+        main_step = self.root / "assembly.step"
+        main_step.write_bytes(b"123456")
+        selected_step = self.root / "selected.step"
+        selected_step.write_bytes(b"12345")
+        unused_step = self.root / "unused.step"
+        unused_step.write_bytes(b"z" * 100)
+        descriptor_path = display_step.scene_path(main_step)
+        descriptor_path.write_text(json.dumps({"schema": display_step.SCHEMA,
+            "step": protocol.binding(main_step), "units": "mm",
+            "coordinateSystem": {"up": "Z", "handedness": "right"},
+            "objects": [
+                {"name": "body", "step": protocol.binding(selected_step)},
+                {"name": "body-alias", "step": protocol.binding(selected_step)},
+                {"name": "hidden", "step": protocol.binding(unused_step)},
+            ]}))
+        budget = agent_preview._selected_step_input_budget(self.root, main_step, {"body", "body-alias"})
+        self.assertEqual(budget, {"files": 2, "bytes": 11, "maxBytes": agent_preview.MAX_TOTAL_STEP_INPUT_BYTES,
+                                  "sourceDependencies": [protocol.binding(descriptor_path), protocol.binding(selected_step)]})
+        report = self.root / "parent.json"
+        source_ref, main_ref = protocol.binding(source), protocol.binding(main_step)
+        report.write_text(json.dumps({"schema": "a3d-draft-result/v2", "runId": "budget-run",
+            "status": "draft", "source": source_ref, "taskInputBindings": {"source": source_ref},
+            "artifacts": {"step": {**main_ref, "scene": protocol.binding(descriptor_path)}}}))
+        parent_ref = protocol.binding(report)
+        with mock.patch.object(agent_preview, "MAX_TOTAL_STEP_INPUT_BYTES", 10), \
+             mock.patch.object(agent_api, "_paths_current", wraps=agent_api._paths_current) as freshness_spy, \
+             mock.patch("display_step.load_step_objects") as load_spy:
+            with self.assertRaisesRegex(ValueError, "selected STEP inputs total 11 bytes"):
+                agent_api.dispatch(self.root, "preview", {"report": parent_ref["path"],
+                    "sha256": parent_ref["sha256"], "requests": [{"kind": "camera", "view": "front",
+                    "partIds": ["body"]}]})
+        load_spy.assert_not_called()
+        freshness_keys = {tuple(call.args[1]) for call in freshness_spy.call_args_list}
+        self.assertIn(("step",), freshness_keys)
+        self.assertIn(("sourceArtifact",), freshness_keys)
+
+    def test_legacy_stage_child_steps_are_included_in_preflight_budget(self):
+        import agent_preview
+
+        parent = self.root / "legacy-assembly.step"
+        child = self.root / "legacy-body.step"
+        parent.write_bytes(b"parent")
+        child.write_bytes(b"child-step")
+        stage = self.root / "draft_cad-stage.json"
+        stage.write_text(json.dumps({
+            "artifacts": {"step:assembly": protocol.binding(parent), "step:body": protocol.binding(child)},
+            "objects": [{"name": "body", "stepArtifact": "step:body", "role": "manufactured"}],
+        }))
+
+        with mock.patch.object(agent_preview, "MAX_TOTAL_STEP_INPUT_BYTES", 10):
+            with self.assertRaisesRegex(ValueError, "selected STEP inputs total 16 bytes"):
+                agent_preview._selected_step_input_budget(self.root, parent, None)
+
+    def test_unbound_or_out_of_workspace_legacy_stage_is_never_parsed(self):
+        import agent_preview
+        import display_step
+
+        parent = self.root / "plain.step"
+        parent.write_bytes(b"plain-step")
+        (self.root / "broken_cad-stage.json").write_text("not json")
+        with mock.patch.object(display_step, "step_object_dependencies", side_effect=AssertionError("unbound stage read")) as read_stage:
+            self.assertIsNone(agent_preview._bound_legacy_stage_dependencies(self.root, parent, None))
+            read_stage.assert_not_called()
+            with self.assertRaisesRegex(ValueError, "legacy CAD stage is missing or differs"):
+                agent_preview._bound_legacy_stage_dependencies(self.root, parent,
+                    {"path": "../outside_cad-stage.json", "sha256": "0" * 64})
+            read_stage.assert_not_called()
+
+    def test_legacy_stage_and_child_tampering_make_preview_inspect_historical(self):
+        import agent_preview
+
+        parent = self.root / "legacy-assembly.step"
+        child = self.root / "legacy-body.step"
+        parent.write_bytes(b"parent-step")
+        child.write_bytes(b"child-step")
+        stage = self.root / "draft_cad-stage.json"
+        stage.write_text(json.dumps({
+            "artifacts": {"step:assembly": protocol.binding(parent), "step:body": protocol.binding(child)},
+            "objects": [{"name": "body", "stepArtifact": "step:body", "role": "manufactured"}],
+        }))
+        budget = agent_preview._selected_step_input_budget(self.root, parent, None)
+        dependencies = budget["sourceDependencies"]
+        parent_report = self.root / "parent.json"
+        input_bindings = {"source": protocol.binding(parent)}
+        parent_report.write_text(json.dumps({"schema": "a3d-draft-result/v2", "status": "draft",
+                                             "source": protocol.binding(parent), "taskInputBindings": input_bindings,
+                                             "cadStage": protocol.binding(stage),
+                                             "artifacts": {"step": protocol.binding(parent)}}))
+        parent_ref = protocol.binding(parent_report)
+        agent_api.save(self.root, ".a3d-agent/state.json", {"schema": agent_api.SCHEMA,
+            "latest": {"report": parent_ref, "inputs": input_bindings}})
+        manifest = {"schema": agent_preview.MANIFEST_SCHEMA, "cacheKey": "legacy-cache",
+            "parentReport": parent_ref, "sourceArtifact": {"binding": protocol.binding(parent)},
+            "sourceDependencyBindings": dependencies, "observations": []}
+        manifest["manifestSha256"] = sha256(protocol.encode(manifest).encode()).hexdigest()
+        manifest_path = agent_api.save(self.root, ".a3d-agent/previews/legacy.json", manifest)
+
+        current = agent_api.inspect_report(self.root, {"report": str(manifest_path), "sha256": protocol.binding(manifest_path)["sha256"]})
+        self.assertTrue(current["previewCurrentness"]["sourceCurrent"])
+        self.assertEqual(current["previewCurrentness"]["status"], "current")
+
+        child.write_bytes(b"changed-child")
+        stale_child = agent_api.inspect_report(self.root, {"report": str(manifest_path), "sha256": protocol.binding(manifest_path)["sha256"]})
+        self.assertFalse(stale_child["previewCurrentness"]["sourceCurrent"])
+        self.assertEqual(stale_child["previewCurrentness"]["status"], "historical")
+        with self.assertRaisesRegex(ValueError, "source STEP scene or object binding is stale"):
+            agent_api.dispatch(self.root, "preview", {"report": parent_ref["path"], "sha256": parent_ref["sha256"],
+                "requests": [{"kind": "camera", "view": "front"}]})
+        child.write_bytes(b"child-step")
+
+        stage.write_text(stage.read_text(encoding="utf-8") + " ")
+        stale_stage = agent_api.inspect_report(self.root, {"report": str(manifest_path), "sha256": protocol.binding(manifest_path)["sha256"]})
+        self.assertFalse(stale_stage["previewCurrentness"]["sourceCurrent"])
+        self.assertEqual(stale_stage["previewCurrentness"]["status"], "historical")
+        self.assertFalse(agent_preview._source_dependencies_current(self.root, dependencies))
+        with self.assertRaisesRegex(ValueError, "legacy CAD stage is missing or differs"):
+            agent_api.dispatch(self.root, "preview", {"report": parent_ref["path"], "sha256": parent_ref["sha256"],
+                "requests": [{"kind": "camera", "view": "front"}]})
+
     def test_context_and_inspect_resolve_exact_run_preview_and_prefer_only_fresh_image(self):
         source = self.root / "model.py"
         image_parent = self.root
@@ -1042,6 +1190,14 @@ export_draft({'body': Box(10, 10, 10)})
         self.assertEqual(result["observations"][1]["kind"], "section")
         self.assertEqual(result["observations"][0]["cameraScope"], requests[0]["scope"])
         self.assertEqual(result["observations"][1]["measurementSummary"]["status"], "material")
+        self.assertLessEqual(result["limits"]["stepInputBytes"], result["limits"]["maxStepInputBytes"])
+        memory_boundary = result["limits"]["processMemoryBoundary"]
+        self.assertIn(memory_boundary["kind"], {"address-space", "job-process-commit"})
+        self.assertEqual(memory_boundary["budgetBytes"], 2 * 1024 * 1024 * 1024)
+        if memory_boundary["availableBytes"] is not None:
+            self.assertEqual(memory_boundary["limitBytes"], memory_boundary["baselineBytes"] + memory_boundary["availableBytes"])
+        else:
+            self.assertEqual(memory_boundary["limitBytes"], memory_boundary["baselineBytes"] + memory_boundary["budgetBytes"])
         self.assertEqual(agent_api.state(self.root)["latest"], latest_before)
 
         manifest_process = self.cli("inspect", {"report": result["report"]["path"],
@@ -1059,6 +1215,11 @@ export_draft({'body': Box(10, 10, 10)})
         self.assertEqual(cached_process.returncode, 0, cached_process.stderr + cached_process.stdout)
         cached = json.loads(cached_process.stdout)
         self.assertTrue(cached["cached"])
+        cached_manifest = protocol.read_report(self.root, result["report"]["path"], result["report"]["sha256"])[1]
+        self.assertIn("generationProcessMemoryBoundary", cached_manifest["limits"])
+        self.assertIn("processMemoryBoundary", cached["limits"])
+        self.assertEqual(cached["limits"]["processMemoryBoundary"]["budgetBytes"],
+                         result["limits"]["processMemoryBoundary"]["budgetBytes"])
         section_process = self.cli("preview", {"report": parent_ref["path"],
             "sha256": parent_ref["sha256"], "requests": [requests[1]]})
         self.assertEqual(section_process.returncode, 0, section_process.stderr + section_process.stdout)
@@ -1299,11 +1460,74 @@ export_draft({'body': Box(10, 10, 10)})
         report_path = self.root / "parent.json"
         report_path.write_text(json.dumps({"schema": "a3d-draft-result/v2", "runId": "scene-run",
             "status": "draft", "source": source_ref, "taskInputBindings": {"source": source_ref},
-            "artifacts": {"step": step_ref}}))
+            "artifacts": {"step": {**step_ref, "scene": protocol.binding(scene)}}}))
         report_ref = protocol.binding(report_path)
         object_step.write_text("tampered object")
         with mock.patch.object(display_step, "load_step_objects") as load_spy:
             with self.assertRaisesRegex(ValueError, "scene or object binding is stale"):
+                agent_api.dispatch(self.root, "preview", {"report": report_ref["path"],
+                    "sha256": report_ref["sha256"], "requests": [{"kind": "camera", "view": "front"}]})
+        load_spy.assert_not_called()
+
+    def test_preview_recovers_scene_only_from_exact_state_output_binding(self):
+        import agent_preview
+        import display_step
+
+        step = self.root / "assembly.step"
+        step.write_text("bound STEP")
+        source = self.root / "model.py"
+        source.write_text("# source")
+        step_ref = protocol.binding(step)
+        scene = display_step.scene_path(step)
+        scene.write_text(json.dumps({"schema": display_step.SCHEMA, "step": step_ref,
+            "objects": [{"name": "body", "step": protocol.binding(step)}]}))
+        scene_ref = protocol.binding(scene)
+        report_path = self.root / "parent.json"
+        source_ref = protocol.binding(source)
+        report_path.write_text(json.dumps({"schema": "a3d-draft-result/v2", "status": "draft",
+            "source": source_ref, "taskInputBindings": {"source": source_ref},
+            "artifacts": {"step": step_ref}}))
+        report_ref = protocol.binding(report_path)
+        agent_api.save(self.root, ".a3d-agent/state.json", {"schema": agent_api.SCHEMA,
+            "latest": {"report": report_ref, "outputs": {"step": {**step_ref, "scene": scene_ref}}},
+            "runs": []})
+
+        key, recovered_ref, _ = agent_preview._source_artifact(
+            {"artifacts": {"step": step_ref}}, report_ref, None, self.root)
+        self.assertEqual(key, "step")
+        self.assertEqual(recovered_ref["scene"], scene_ref)
+
+        other_step = self.root / "unrelated.step"
+        other_step.write_text("unrelated STEP")
+        other_ref = protocol.binding(other_step)
+        agent_api.save(self.root, ".a3d-agent/state.json", {"schema": agent_api.SCHEMA,
+            "latest": {"report": report_ref, "outputs": {"step": {**other_ref, "scene": scene_ref}}},
+            "runs": []})
+        _, unrelated_ref, _ = agent_preview._source_artifact(
+            {"artifacts": {"step": step_ref}}, report_ref, None, self.root)
+        self.assertNotIn("scene", unrelated_ref)
+
+    def test_preview_rejects_unbound_adjacent_scene_before_step_load(self):
+        import display_step
+
+        step = self.root / "plain.step"
+        step.write_text("plain STEP")
+        object_step = self.root / "other.step"
+        object_step.write_text("different child geometry")
+        source = self.root / "model.py"
+        source.write_text("# source")
+        source_ref = protocol.binding(source)
+        step_ref = protocol.binding(step)
+        scene = display_step.scene_path(step)
+        scene.write_text(json.dumps({"schema": display_step.SCHEMA, "step": step_ref,
+            "objects": [{"name": "body", "step": protocol.binding(object_step)}]}))
+        report_path = self.root / "parent.json"
+        report_path.write_text(json.dumps({"schema": "a3d-draft-result/v2", "runId": "plain-run",
+            "status": "draft", "source": source_ref, "taskInputBindings": {"source": source_ref},
+            "artifacts": {"step": step_ref}}))
+        report_ref = protocol.binding(report_path)
+        with mock.patch.object(display_step, "load_step_objects") as load_spy:
+            with self.assertRaisesRegex(ValueError, "unbound scene descriptor"):
                 agent_api.dispatch(self.root, "preview", {"report": report_ref["path"],
                     "sha256": report_ref["sha256"], "requests": [{"kind": "camera", "view": "front"}]})
         load_spy.assert_not_called()
