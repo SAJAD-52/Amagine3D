@@ -326,6 +326,7 @@ Usage:
 ${extraUsage}  a3d agent context
   a3d agent checkpoint '{"report":"RUN.json","sha256":"SHA","observations":["visual observation"],"todo":["next check"],"functionalReady":true}'
   a3d agent display '{"report":"RUN.json","sha256":"SHA"}' (retry derived preview only)
+  a3d agent preview --args-file PREVIEW_REQUEST.json (camera or exact BRep section from a bound STEP artifact)
   a3d agent design '{"action":"read","design":"model.a3d.json"}'
   a3d agent design --args-file DESIGN_EDITS.json (batched add/update/remove)
   a3d agent capabilities '{"designOps":["box","pocket","fillet"]}'

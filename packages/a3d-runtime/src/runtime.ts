@@ -173,7 +173,7 @@ export function codexPrompt(
           '首稿先确定外形、内腔、组件占位和功能路径，只读所需合同。功能骨架稳定后立即声明独立 intent，用 validate 检查 design/revision/intent 并首次 compile；检查安装、紧固后再细化外观。apply 返回的 revision 用于下一次 build。恢复时直接消费 context.nextAction、context.nextInspect 和 context.nextDesignRead，复用同版本 capabilityReports；仅精读缺失字段并跟随 page.nextRequest。',
           '外观调整必须保留冻结 intent 的尺寸和功能目标；最终逐项核对文字验收与实际控制值。安装 witness 必须由原组件包络和完整实际路径推导，不通过缩小见证消除碰撞。',
           '项目 CLI 的 evidence gate 只拒绝已有完整成功证据且 source/intent/scene/profile 字节完全相同的 draft 或 compile。遇到 `a3d-admission-rejection/v1` 时读取 matchedResult，或实质修改输入后再运行；缺失、不完整或失败证据仍可重试，门控不决定阶段、几何、拓扑或修复策略。',
-          '用原生 view_image 读取最新五视图预览，根据实际形态、布局和功能关系修改对应参数，并用绑定报告的 agent checkpoint 保存简短观察和待办。无法识别时保留视觉审查未完成状态。若 CAD STEP 阶段通过而显示失败，先检查局部问题并用 agent display 单独重试预览，避免为法线错误改变制造几何。',
+          '先读取当前报告绑定的有效预览；图片路径返回不代表图片已送达或已看懂。若当前图有明确盲区，再用 `a3d agent preview` 按问题选择已绑定 STEP 工件、对象、相机或 BRep 剖面；使用返回图片并通过返回的 manifest report/hash 检查范围与测量。历史或诊断图要明确标注其对象范围和状态，不能据此通过制造检查。只对影响下一步的观察记录待办，不为每次观察强制 checkpoint。若 CAD STEP 阶段通过而默认显示失败，先用 agent display 单独重试预览，避免为法线错误改变制造几何。',
           '未经风险位置的专项 BRep/剖面检查，不把薄壁警告判为采样伪差。打印方向、支撑、桥接和免支撑结论必须引用当前 compile 的 `printOrientationEvidence` 与 mesh audit；其中的 rotateDegreesXYZ 才是 STL/3MF 的实际语义旋转。`rotated_xy_90deg=false` 只表示排版时没有额外床面 XY 四分之一转，不能覆盖 selected pose 或机器 warning。',
           '最终回复前读取本轮最新 `*_compile-result.json`，如实保留其中的 `status` 和 `visualReviewRequired`。可以报告实际完成的视觉审查及其范围，但这不改变编译器原始状态，也不证明制造或交付就绪；`pass=true` 只代表自动检查通过，不得据此声称可交付。',
           '在每个主要阶段或耗时工具调用前，用一句简短中文说明当前目标；只描述用户可理解的工作，不复述 shell 命令或内部推理。',

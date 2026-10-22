@@ -57,6 +57,55 @@ version still verify. The successful retry returns `awaiting-visual-review` and
 records `manufacturingEvidence.parentReport`; installation and manufacturing
 checks are not rerun. A changed proof cannot be reused or promoted.
 
+## On-demand preview observations
+
+Use `preview` when a current image leaves a specific visual or internal-geometry
+question unresolved. It reads an existing bound STEP artifact; it never executes
+the model source, reruns manufacturing checks, or changes `latest` CAD state.
+The default source is `step:display`, then `step`. If neither exists, a sole
+`step:*` artifact is accepted; ambiguous STEP outputs require an explicit key.
+
+```json
+{
+  "report": ".a3d-agent/runs/RUN.json",
+  "sha256": "REPORT_SHA",
+  "sourceArtifact": "step:display",
+  "requests": [
+    {"kind": "camera", "view": "back", "target": [0, 0, 12], "scope": {"min": [-20, -15, 0], "max": [20, 15, 24]}, "partIds": ["shell"]},
+    {"kind": "section", "partIds": ["shell"],
+     "plane": {"origin": [0, 0, 12], "normal": [0, -1, 0], "u": [1, 0, 0]}}
+  ]
+}
+```
+
+Run `a3d agent preview --args-file preview-request.json`. `partIds` are exact
+`objects[].name` values from the selected artifact's bound STEP scene descriptor;
+without a descriptor, observe the whole artifact and omit `partIds`. Camera
+directions, targets, crop-scope corners, and section planes use semantic
+millimetres. Camera `view` accepts the standard orthographic views plus `back`
+and `left` aliases. `scope` is an optional finite axis-aligned box with `min`
+and `max` corners; it clips the camera observation to that region. A batch accepts
+up to four requests, eight output images, four million output pixels, 64 selected
+objects, and the configured 500,000-triangle render limit. Images are cached by
+the bound parent report, STEP/scene bytes, renderer version, and request values;
+invalid image hashes trigger regeneration. Parent inputs must still match the
+active workspace before a preview is generated. The parent report and source
+artifact are checked again before saving observations; historical results can
+still be inspected, but expired inputs cannot create a new preview.
+
+The result returns a manifest binding and direct `path`/`sha256` pairs for each
+image. Use that manifest report and hash with `a3d agent inspect` to read full
+section measurements and object scope. Every observation records selected and
+hidden object IDs; section images are sampled outlines of the same BRep faces
+used for numeric measurement. Historical parents remain marked historical, and
+diagnostic geometry remains diagnostic. An observation never changes the
+parent report's acceptance or proves geometry outside its stated scope.
+The workbench exposes only manifests registered in `.a3d-agent/state.json` and
+images whose manifest, parent report, source STEP/scene/object bindings and image
+hashes still match. It does not scan the hidden directory. The registry retains
+at most 32 previews and the feature-owned manifest/image cache has a 256 MiB
+budget; older preview files are pruned to enforce those bounds.
+
 After an actual review, retain a small agent checkpoint:
 
 ```bash

@@ -312,6 +312,62 @@ export async function readCadRunArtifacts(workspace: string): Promise<ArtifactSu
         }
       } catch { /* A missing/stale historical run cannot replace valid current evidence. */ }
     }
+    // On-demand observations live under the private cache directory, so they
+    // become visible only through a bounded registry of exact report/image
+    // bindings written by the agent API. Never walk .a3d-agent recursively.
+    const previewEntries = Array.isArray(state.visualPreviews) ? state.visualPreviews.slice(-32) : [];
+    for (const entry of previewEntries) {
+      try {
+        if (!entry?.manifest || !entry?.parentReport) continue;
+        const { bytes: manifestBytes } = await bound(entry.manifest, 8 * 1024 * 1024);
+        const manifest = JSON.parse(manifestBytes.toString('utf8'));
+        if (manifest.schema !== 'a3d-agent-preview/v1' || manifest.parentReport.path !== entry.parentReport.path ||
+            manifest.parentReport.sha256 !== entry.parentReport.sha256 || !Array.isArray(manifest.observations)) continue;
+        const { bytes: parentBytes } = await bound(entry.parentReport, 2 * 1024 * 1024);
+        const parent = JSON.parse(parentBytes.toString('utf8'));
+        if (!['a3d-draft-result/v2', 'evidence-cad-compile-result/v2'].includes(parent.schema) || !parent.runId) continue;
+        const sourceRef = manifest.sourceArtifact?.binding;
+        if (!sourceRef) continue;
+        const { path: sourcePath } = await bound(sourceRef);
+        if (sourceRef.scene) {
+          const { bytes: sceneBytes, path: scenePath } = await bound(sourceRef.scene, 8 * 1024 * 1024);
+          const scene = JSON.parse(sceneBytes.toString('utf8'));
+          if (scene.schema !== 'a3d-step-display/v1' ||
+              scene.step?.path !== sourceRef.path || scene.step?.sha256 !== sourceRef.sha256 ||
+              !Array.isArray(scene.objects) || !scene.objects.length || scene.objects.length > 2_000) continue;
+          let sceneCurrent = true;
+          for (const object of scene.objects) {
+            try { await bound(object.step); }
+            catch { sceneCurrent = false; break; }
+          }
+          if (!sceneCurrent || !scenePath.startsWith(root + sep) || !sourcePath.startsWith(root + sep)) continue;
+        }
+        const inputs = parent.taskInputBindings ?? parent.inputBindings ?? (parent.source ? { source: parent.source } : {});
+        const freshness = await Promise.allSettled(Object.values(inputs).map((ref) => bound(ref as BoundFile)));
+        const current = freshness.length > 0 && freshness.every((item) => item.status === 'fulfilled') && matchesActive(root, active, inputs);
+        const designInput = inputs.design ?? inputs.source;
+        const designPath = typeof designInput?.path === 'string'
+          ? relative(root, await realpath(resolve(root, designInput.path)).catch(() => resolve(root, designInput.path))) : undefined;
+        const designId = designPath && !isAbsolute(designPath) && designPath !== '..' && !designPath.startsWith(`..${sep}`)
+          ? `${inputs.design ? 'design' : 'source'}:${designPath.split(sep).join('/')}` : undefined;
+        const status = parent.pass === true ? 'validated' as const : parent.status === 'draft' ? 'draft' as const : 'diagnostic' as const;
+        for (const observation of manifest.observations) {
+          try {
+            const imageRef = observation?.image;
+            if (!imageRef || typeof imageRef.path !== 'string' || !imageRef.path.toLowerCase().endsWith('.png')) continue;
+            const { path, bytes } = await bound(imageRef, 32 * 1024 * 1024);
+            const local = relative(root, path).split(sep).join('/');
+            if (artifacts.has(local)) continue;
+            const info = await stat(path);
+            artifacts.set(local, { kind: 'image', name: basename(path), path: local,
+              url: `/api/artifacts/file?path=${encodeURIComponent(local)}`, size: info.size,
+              modifiedAt: info.mtime.toISOString(), primary: false, purpose: status === 'diagnostic' ? 'diagnostic-preview' : 'display-preview',
+              status, inputsCurrent: current, sha256: createHash('sha256').update(bytes).digest('hex'),
+              buildId: parent.runId, ...(designId ? { designId } : {}), ...(parent.model ? { modelId: parent.model } : {}) });
+          } catch { /* One damaged image does not hide other bound observations. */ }
+        }
+      } catch { /* Stale manifests, parent reports, or STEP sources stay hidden. */ }
+    }
     return [...artifacts.values()];
   } catch { return []; }
 }

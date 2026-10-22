@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { test } from 'node:test';
 
 import { readCadRunEvidence, readCadRunArtifacts } from '../server/cad-run-evidence.ts';
@@ -186,5 +186,72 @@ test('every declared plate is retained as internal evidence on failed or stale r
     const stale = await readCadRunArtifacts(root);
     assert.equal(stale.length, 4);
     assert.ok(stale.every((item) => item.inputsCurrent === false && item.purpose === 'internal-evidence' && !item.primary));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('only explicitly registered hash-bound visual observations enter the artifact list', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'a3d-visual-preview-'));
+  const bind = async (path: string) => ({ path, sha256: createHash('sha256').update(await readFile(path)).digest('hex') });
+  try {
+    const hidden = join(root, '.a3d-agent');
+    const previewDir = join(hidden, 'previews', 'cache', 'cache-key');
+    await mkdir(previewDir, { recursive: true });
+    const source = join(root, 'model.py'), step = join(root, 'assembly.step'), objectStep = join(root, 'body.step');
+    await writeFile(source, '# source');
+    await writeFile(step, 'bound STEP');
+    await writeFile(objectStep, 'bound object STEP');
+    const stepRef = await bind(step);
+    const objectRef = await bind(objectStep);
+    const scenePath = join(root, 'assembly.scene.json');
+    const scene = { schema: 'a3d-step-display/v1', step: stepRef,
+      objects: [{ name: 'body', step: objectRef }] };
+    const sceneBytes = JSON.stringify(scene);
+    await writeFile(scenePath, sceneBytes);
+    const sourceArtifact = { ...stepRef, scene: await bind(scenePath) };
+    const inputs = { source: await bind(source) };
+    const parentPath = join(hidden, 'runs', 'parent.json');
+    await mkdir(join(hidden, 'runs'), { recursive: true });
+    await writeFile(parentPath, JSON.stringify({ schema: 'a3d-draft-result/v2', runId: 'parent-run',
+      status: 'draft', source: inputs.source, taskInputBindings: inputs, artifacts: {} }));
+    const parentReport = await bind(parentPath);
+    const image = join(previewDir, 'observation-00.png');
+    const stray = join(previewDir, 'unregistered.png');
+    await writeFile(image, 'bound image');
+    await writeFile(stray, 'must stay hidden');
+    const manifestPath = join(hidden, 'previews', 'cache-key.json');
+    await writeFile(manifestPath, JSON.stringify({ schema: 'a3d-agent-preview/v1',
+      parentReport, parentStatus: 'draft', sourceArtifact: { key: 'step:assembly', binding: await bind(step) },
+      observations: [{ id: 'front', kind: 'camera', image: await bind(image) }] }));
+    const run = { report: parentReport, inputs };
+    await writeFile(join(hidden, 'state.json'), JSON.stringify({ schema: 'a3d-agent/v1',
+      activeInput: { kind: 'source', path: source }, latest: run, runs: [run],
+      visualPreviews: [{ manifest: await bind(manifestPath), parentReport }] }));
+
+    const listed = await readCadRunArtifacts(root);
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0]?.path, relative(root, image));
+    assert.equal(listed[0]?.kind, 'image');
+    assert.equal(listed[0]?.purpose, 'display-preview');
+    assert.equal(listed[0]?.inputsCurrent, true);
+    assert.equal(listed.some((item) => item.path.endsWith('unregistered.png')), false);
+
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    manifest.sourceArtifact.binding = sourceArtifact;
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    const statePath = join(hidden, 'state.json');
+    await writeFile(statePath, JSON.stringify({ schema: 'a3d-agent/v1', activeInput: { kind: 'source', path: source },
+      latest: run, runs: [run], visualPreviews: [{ manifest: await bind(manifestPath), parentReport }] }));
+    assert.equal((await readCadRunArtifacts(root)).length, 1);
+    await writeFile(scenePath, sceneBytes + 'tampered');
+    assert.deepEqual(await readCadRunArtifacts(root), []);
+    await writeFile(scenePath, sceneBytes);
+    await writeFile(objectStep, 'tampered object STEP');
+    assert.deepEqual(await readCadRunArtifacts(root), []);
+    await writeFile(objectStep, 'bound object STEP');
+    const currentManifestRef = await bind(manifestPath);
+    await writeFile(statePath, JSON.stringify({ schema: 'a3d-agent/v1', activeInput: { kind: 'source', path: source },
+      latest: run, runs: [run], visualPreviews: [{ manifest: currentManifestRef, parentReport }] }));
+    await writeFile(image, 'tampered');
+    assert.deepEqual(await readCadRunArtifacts(root), []);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

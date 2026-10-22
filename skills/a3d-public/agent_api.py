@@ -35,8 +35,10 @@ ARGUMENTS = {
     "validate": {"intent": str, "scene": str, "source": str, "design": str, "revision": str},
     "checkpoint": {"report": str, "sha256": str, "observations": list, "todo": list, "functionalReady": bool},
     "display": {"report": str, "sha256": str},
+    "preview": {"report": str, "sha256": str, "sourceArtifact": str, "requests": list},
 }
-REQUIRED = {"build": {"phase"}, "inspect": {"report"}, "design": {"action", "design"}, "checkpoint": {"report"}, "display": {"report"}}
+REQUIRED = {"build": {"phase"}, "inspect": {"report"}, "design": {"action", "design"},
+            "checkpoint": {"report"}, "display": {"report"}, "preview": {"report", "sha256", "requests"}}
 
 
 class RequestError(ValueError):
@@ -98,7 +100,7 @@ def state(root: Path) -> dict:
 def capability_version() -> str:
     from capability_manifest import build_manifest
     runtime = [sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-               for name in ("agent_api.py", "agent_protocol.py", "design_language.py", "design_api.py", "design_build.py", "design_connections.py", "design_roles.py", "cad_stages.py", "cad_display_retry.py", "display_step.py", "display_normals.py",
+               for name in ("agent_api.py", "agent_protocol.py", "agent_preview.py", "cpu_z_buffer.py", "brep_measurements.py", "design_language.py", "design_api.py", "design_build.py", "design_connections.py", "design_roles.py", "cad_stages.py", "cad_display_retry.py", "display_step.py", "display_normals.py",
                             "intent_contract.py", "intent_revision.py", "cad_diagnostics.py")]
     return sha256(encode([build_manifest()["fingerprint"], *runtime]).encode()).hexdigest()
 
@@ -121,6 +123,52 @@ def _paths_current(root: Path, bindings: dict) -> bool:
         return False
 
 
+def _preview_binding(root: Path, document: dict) -> tuple[str | None, dict | None]:
+    artifacts = document.get("artifacts", {})
+    if not isinstance(artifacts, dict):
+        return None, None
+    stale = None
+    for key in ("preview", "diagnosticPreview"):
+        ref = artifacts.get(key)
+        if isinstance(ref, dict) and isinstance(ref.get("path"), str) and isinstance(ref.get("sha256"), str):
+            if _paths_current(root, {key: ref}):
+                return key, {"path": ref["path"], "sha256": ref["sha256"]}
+            stale = stale or key
+    return stale, None
+
+
+def _report_artifacts(root: Path, report_ref: dict, document: dict) -> dict:
+    """Join the exact run's output bindings for reports that keep them in state."""
+    result = dict(document)
+    artifacts = dict(document.get("artifacts", {})) if isinstance(document.get("artifacts"), dict) else {}
+    current = state(root)
+    records = [current.get("latest", {}), *current.get("runs", [])]
+    run = next((entry for entry in records if isinstance(entry, dict) and entry.get("report") == report_ref), None)
+    if run and isinstance(run.get("outputs"), dict):
+        artifacts = {**run["outputs"], **artifacts}
+    result["artifacts"] = artifacts
+    return result
+
+
+def _summary_document(root: Path, document: dict) -> tuple[dict, dict]:
+    """Project only a current bound image path into a direct agent response."""
+    projected = dict(document)
+    artifacts = document.get("artifacts", {})
+    key, ref = _preview_binding(root, document)
+    if isinstance(artifacts, dict):
+        projected["artifacts"] = {name: value for name, value in artifacts.items()
+                                   if name not in {"preview", "diagnosticPreview"} or name == key and ref}
+    inputs = document.get("taskInputBindings", document.get("inputBindings", {}))
+    if not inputs and isinstance(document.get("source"), dict):
+        inputs = {"source": document["source"]}
+    current_inputs = _paths_current(root, inputs) if inputs else False
+    active = _active_matches(root, state(root), inputs) if inputs else False
+    historical = not (current_inputs and active)
+    metadata = ({"previewState": "historical" if ref and historical else "current" if ref else "stale-or-missing",
+                 "previewCurrentness": {"inputsCurrent": current_inputs, "activeInputsMatch": active,
+                                        "historical": historical},
+                 **({"previewArtifact": key} if key and ref else {})} if key or artifacts else {})
+    return projected, metadata
 def _active_matches(root, current, inputs):
     try:
         intent = current.get("activeIntent")
@@ -368,6 +416,14 @@ def context(root: Path, args: dict) -> dict:
                                   "inputsCurrent": _paths_current(root, latest.get("inputs", {})) and _active_matches(root, current, latest.get("inputs", {}))}
             if report.get("pass") or report.get("status") == "awaiting-preview":
                 response["latest"]["inputsCurrent"] &= _intent_lineage_current(root, latest.get("inputs", {}))
+            bound_report = _report_artifacts(root, ref, report)
+            preview_key, preview_ref = _preview_binding(root, bound_report)
+            if preview_ref:
+                preview_field = "preview" if response["latest"]["inputsCurrent"] else "historicalPreview"
+                response["latest"][preview_field] = {**preview_ref, "artifact": preview_key}
+                response["latest"]["previewState"] = "current" if preview_field == "preview" else "historical"
+            elif preview_key:
+                response["latest"]["previewState"] = "stale-or-missing"
             inspect_request = {"report": ref["path"], "sha256": ref["sha256"]}
             response["nextInspect" if response["latest"]["inputsCurrent"] else "historicalInspect"] = inspect_request
             response["suggestedPhase"] = ("draft-feedback" if report.get("status") == "draft" else
@@ -702,8 +758,50 @@ def build(root: Path, args: dict) -> dict:
 
 def inspect_report(root: Path, args: dict) -> dict:
     ref, document = read_report(root, args["report"], args.get("sha256"))
+    if isinstance(document, dict) and document.get("schema") == "a3d-agent-preview/v1":
+        from agent_preview import _currentness
+        projected = dict(document)
+        observations = []
+        image_states = []
+        workspace = root.resolve()
+        for item in document.get("observations", []):
+            projected_item = dict(item)
+            image_ref = item.get("image", {}) if isinstance(item, dict) else {}
+            image_path = Path(image_ref.get("path", "")) if isinstance(image_ref, dict) else Path()
+            try:
+                resolved = image_path.resolve(strict=True)
+                image_current = (resolved.is_relative_to(workspace) and resolved.is_file()
+                                 and sha256(resolved.read_bytes()).hexdigest() == image_ref.get("sha256"))
+            except (OSError, RuntimeError, ValueError):
+                image_current = False
+            image_states.append({"id": item.get("id"), "current": image_current})
+            if not image_current:
+                projected_item.pop("image", None)
+            observations.append(projected_item)
+        projected["observations"] = observations
+        parent_ref = document.get("parentReport", {})
+        metadata = {"previewCurrentness": {"status": "stale"}}
+        try:
+            bound_parent, parent = read_report(root, parent_ref["path"], parent_ref["sha256"])
+            if bound_parent != parent_ref:
+                raise ValueError("parent report binding changed")
+            status = _currentness(root, parent, parent_ref)
+            source_binding = document.get("sourceArtifact", {}).get("binding", {})
+            status["sourceCurrent"] = _paths_current(root, {"sourceArtifact": source_binding})
+            status["historical"] = status["historical"] or not status["sourceCurrent"]
+            status["imagesCurrent"] = all(item["current"] for item in image_states)
+            status["images"] = image_states
+            status["status"] = ("stale" if not status["imagesCurrent"] else
+                                 "historical" if status["historical"] else "current")
+            metadata = {"previewCurrentness": status}
+        except (KeyError, OSError, TypeError, ValueError):
+            pass
+        page = inspect(projected, ref, field=args.get("field", ""), issue_id=args.get("issueId"),
+                       cursor=args.get("cursor"), metadata=metadata)
+        return page
     if "field" not in args and "issueId" not in args and isinstance(document, dict) and "issues" in document:
-        return summary(document, ref, args.get("cursor"))
+        projected, metadata = _summary_document(root, _report_artifacts(root, ref, document))
+        return summary(projected, ref, args.get("cursor"), metadata_extra=metadata)
     page = inspect(document, ref, field=args.get("field", ""), issue_id=args.get("issueId"), cursor=args.get("cursor"))
     if (Path(ref["path"]).is_relative_to(root / ".a3d-agent/capabilities")
             and document.get("capabilityVersion") == capability_version()):
@@ -824,6 +922,14 @@ def display(root, args):
 OPERATIONS["display"] = display
 
 
+def preview(root, args):
+    from agent_preview import preview as create_preview
+    return create_preview(root, args)
+
+
+OPERATIONS["preview"] = preview
+
+
 def check_arguments(operation: str, args: dict) -> None:
     if operation not in ARGUMENTS:
         raise ValueError("unknown task operation; choose " + ", ".join(ARGUMENTS))
@@ -847,6 +953,10 @@ def check_arguments(operation: str, args: dict) -> None:
                                    repairHint="Submit a valid dependency-complete batch, then use its returned revision as the next baseRevision.")
             continue
         if spec[key] is list:
+            if operation == "preview" and key == "requests":
+                if not isinstance(value, list) or not value or len(value) > 4 or any(not isinstance(item, dict) for item in value):
+                    raise RequestError("requests must be an array of 1..4 observation objects", field=key, maximumItems=4)
+                continue
             maximum_length = 4_096 if key == "dependencies" else 300 if operation == "checkpoint" else 200
             if not isinstance(value, list) or any(
                 not isinstance(item, str) or not item.strip() or len(item) > maximum_length for item in value
@@ -883,7 +993,7 @@ def dispatch(root: Path, operation: str, args: dict) -> dict:
     status = "api-error"
     try:
         check_arguments(operation, args)
-        if operation in {"capabilities", "build", "validate", "checkpoint", "display"} or operation == "design" and args.get("action") == "apply":
+        if operation in {"capabilities", "build", "validate", "checkpoint", "display", "preview"} or operation == "design" and args.get("action") == "apply":
             with mutation_lock(root):
                 result = OPERATIONS[operation](root, args)
         else:
