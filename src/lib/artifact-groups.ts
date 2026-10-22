@@ -51,12 +51,14 @@ function childGroups(artifacts: ArtifactSummary[], key: 'partId' | 'plateId') {
 }
 
 function version(id: string, artifacts: ArtifactSummary[]): ArtifactVersion {
-  const roots = fileSectionArtifacts(artifacts).filter((artifact) => artifact.kind !== 'other');
+  const roots = fileSectionArtifacts(artifacts).filter((artifact) =>
+    artifact.kind !== 'other' && artifact.purpose !== 'observation-preview');
   const statuses = roots.map((artifact) => artifact.status);
   const status = statuses.some((value) => value === 'failed' || value === 'diagnostic') ? 'diagnostic'
     : statuses.includes('draft') ? 'draft'
       : statuses.includes('validated') ? 'validated' : 'unverified';
-  const preview = defaultPreviewArtifact(roots) ?? roots.find((artifact) => artifact.kind === 'image') ?? roots[0];
+  const preview = defaultPreviewArtifact(roots) ?? roots.find((artifact) =>
+    artifact.kind === 'image' && artifact.purpose !== 'observation-preview') ?? roots[0];
   const cad = roots.find((artifact) => artifact.purpose === 'cad-model' && !artifact.partId)
     ?? roots.find((artifact) => artifact.format === 'step' && !artifact.partId);
   return {
@@ -64,7 +66,8 @@ function version(id: string, artifacts: ArtifactSummary[]): ArtifactVersion {
     modifiedAt: [...roots].sort((a, b) => timestamp(b) - timestamp(a))[0]?.modifiedAt ?? '',
     inputsCurrent: roots.some((artifact) => artifact.inputsCurrent !== false),
     artifacts, preview, cad,
-    thumbnailUrl: preview?.previewImageUrl ?? roots.find((artifact) => artifact.kind === 'image')?.url,
+    thumbnailUrl: preview?.previewImageUrl ?? roots.find((artifact) =>
+      artifact.kind === 'image' && artifact.purpose !== 'observation-preview')?.url,
     prints: roots.filter(printableArtifact),
     parts: childGroups(artifacts, 'partId'),
     plates: childGroups(artifacts.filter(printableArtifact), 'plateId'),
@@ -73,7 +76,8 @@ function version(id: string, artifacts: ArtifactSummary[]): ArtifactVersion {
 
 /** One design card owns all its build revisions and declared part/plate files. */
 export function artifactDesigns(artifacts: readonly ArtifactSummary[], fallbackName = ''): ArtifactDesign[] {
-  const roots = fileSectionArtifacts(artifacts).filter((artifact) => artifact.kind !== 'other');
+  const roots = fileSectionArtifacts(artifacts).filter((artifact) =>
+    artifact.kind !== 'other' && artifact.purpose !== 'observation-preview');
   const groups = new Map<string, Map<string, ArtifactSummary[]>>();
   for (const artifact of roots) {
     const key = designKey(artifact);

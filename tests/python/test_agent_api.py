@@ -5,6 +5,7 @@ import contextlib
 from hashlib import sha256
 import io
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -1012,6 +1013,368 @@ export_draft({'body': Box(10, 10, 10)})
                 process.terminate()
                 process.communicate(timeout=15)
 
+
+    def test_mixed_preview_batch_reuses_loaded_step_and_inspects_bound_manifest(self):
+        source = self.root / "model.py"
+        source.write_text('from build123d import Box\nfrom build_session import BuildSession\n'
+                          'build = BuildSession(__file__, part_names=("body",))\n'
+                          'build.add("body", Box(10, 10, 10))\nbuild.export()\n')
+        build_process = self.cli("build", {"phase": "draft", "source": source.name})
+        self.assertEqual(build_process.returncode, 0, build_process.stderr + build_process.stdout)
+        built = json.loads(build_process.stdout)
+        self.assertEqual(built["status"], "draft")
+        parent_ref, parent = protocol.read_report(self.root, built["report"]["path"], built["report"]["sha256"])
+        latest_before = agent_api.state(self.root)["latest"]
+        requests = [
+            {"kind": "camera", "id": "oblique", "direction": [1, -2, 1], "up": [0, 0, 1],
+             "target": [0, 0, 0], "scope": {"min": [-2, -2, -2], "max": [2, 2, 2]}, "size": 320},
+            {"kind": "section", "id": "mid-plane",
+             "plane": {"origin": [0, 0, 0], "normal": [0, 0, 1], "u": [1, 0, 0]}},
+        ]
+        preview_process = self.cli("preview", {"report": parent_ref["path"],
+            "sha256": parent_ref["sha256"], "requests": requests})
+        self.assertEqual(preview_process.returncode, 0, preview_process.stderr + preview_process.stdout)
+        result = json.loads(preview_process.stdout)
+        self.assertEqual(result["schema"], "a3d-agent-preview/v1")
+        self.assertLessEqual(protocol.wire_size(result), protocol.MAX_WIRE_BYTES)
+        self.assertEqual(len(result["observations"]), 2)
+        self.assertTrue(all(Path(item["image"]["path"]).is_file() for item in result["observations"]))
+        self.assertEqual(result["observations"][1]["kind"], "section")
+        self.assertEqual(result["observations"][0]["cameraScope"], requests[0]["scope"])
+        self.assertEqual(result["observations"][1]["measurementSummary"]["status"], "material")
+        self.assertEqual(agent_api.state(self.root)["latest"], latest_before)
+
+        manifest_process = self.cli("inspect", {"report": result["report"]["path"],
+            "sha256": result["report"]["sha256"], "field": "/observations"})
+        self.assertEqual(manifest_process.returncode, 0, manifest_process.stderr + manifest_process.stdout)
+        manifest = json.loads(manifest_process.stdout)
+        self.assertEqual(manifest["page"]["total"], 2)
+        self.assertEqual({item["value"]["kind"] for item in manifest["items"]}, {"camera", "section"})
+        section_value = next(item["value"] for item in manifest["items"] if item["value"]["kind"] == "section")
+        self.assertEqual(section_value["measurement"]["preview"], section_value["image"])
+        self.assertEqual(section_value["measurement"]["preview"]["sha256"],
+                         sha256(Path(section_value["image"]["path"]).read_bytes()).hexdigest())
+        cached_process = self.cli("preview", {"report": parent_ref["path"],
+            "sha256": parent_ref["sha256"], "requests": requests})
+        self.assertEqual(cached_process.returncode, 0, cached_process.stderr + cached_process.stdout)
+        cached = json.loads(cached_process.stdout)
+        self.assertTrue(cached["cached"])
+        section_process = self.cli("preview", {"report": parent_ref["path"],
+            "sha256": parent_ref["sha256"], "requests": [requests[1]]})
+        self.assertEqual(section_process.returncode, 0, section_process.stderr + section_process.stdout)
+        section_only = json.loads(section_process.stdout)
+        self.assertEqual(section_only["observations"][0]["kind"], "section")
+
+        run = next(entry for entry in agent_api.state(self.root)["runs"] if entry["report"] == parent_ref)
+        step_ref = next(value for key, value in run["outputs"].items() if key.startswith("step"))
+        step = Path(step_ref["path"])
+        decoy_step = self.root / "later.step"
+        decoy_step.write_bytes(step.read_bytes())
+        current = agent_api.state(self.root)
+        other_report_path = self.root / ".a3d-agent" / "runs" / "other.json"
+        other_report_path.parent.mkdir(parents=True, exist_ok=True)
+        other_report_path.write_text(json.dumps({"schema": "a3d-draft-result/v2", "runId": "other-run",
+            "status": "draft", "taskInputBindings": run["inputs"], "artifacts": {}}))
+        current["latest"] = {"operation": "draft", "report": protocol.binding(other_report_path), "runId": "other-run",
+            "inputs": run["inputs"], "outputs": {"step:assembly": protocol.binding(decoy_step)}}
+        agent_api.save(self.root, ".a3d-agent/state.json", current)
+        historical_process = self.cli("preview", {"report": parent_ref["path"],
+            "sha256": parent_ref["sha256"], "requests": requests})
+        self.assertEqual(historical_process.returncode, 0, historical_process.stderr + historical_process.stdout)
+        historical = json.loads(historical_process.stdout)
+        self.assertEqual(historical["sourceArtifact"]["binding"], step_ref)
+        self.assertTrue(historical["cached"])
+        self.assertTrue(historical["currentness"]["historical"])
+        self.assertFalse(historical["currentness"]["latestRunMatches"])
+        historical_inspect_process = self.cli("inspect", {"report": result["report"]["path"],
+            "sha256": result["report"]["sha256"], "field": "/observations"})
+        self.assertEqual(historical_inspect_process.returncode, 0,
+                         historical_inspect_process.stderr + historical_inspect_process.stdout)
+        historical_inspect = json.loads(historical_inspect_process.stdout)
+        self.assertTrue(historical_inspect["previewCurrentness"]["historical"])
+
+        image = Path(result["observations"][0]["image"]["path"])
+        image.write_bytes(b"damaged cached image")
+        damaged_inspect = self.cli("inspect", {"report": result["report"]["path"],
+            "sha256": result["report"]["sha256"], "field": "/observations"})
+        self.assertEqual(damaged_inspect.returncode, 0, damaged_inspect.stderr + damaged_inspect.stdout)
+        damaged_page = json.loads(damaged_inspect.stdout)
+        damaged_observation = next(item["value"] for item in damaged_page["items"]
+                                   if item["field"] == "/observations/0")
+        self.assertNotIn("image", damaged_observation)
+        self.assertEqual(damaged_page["previewCurrentness"]["status"], "stale")
+        self.assertFalse(damaged_page["previewCurrentness"]["images"][0]["current"])
+        image.unlink()
+        missing_inspect = self.cli("inspect", {"report": result["report"]["path"],
+            "sha256": result["report"]["sha256"], "field": "/observations"})
+        missing_page = json.loads(missing_inspect.stdout)
+        self.assertNotIn("image", next(item["value"] for item in missing_page["items"]
+                                        if item["field"] == "/observations/0"))
+        self.assertEqual(missing_page["previewCurrentness"]["status"], "stale")
+        recomputed_process = self.cli("preview", {"report": parent_ref["path"],
+            "sha256": parent_ref["sha256"], "requests": requests})
+        self.assertEqual(recomputed_process.returncode, 0, recomputed_process.stderr + recomputed_process.stdout)
+        recomputed = json.loads(recomputed_process.stdout)
+        self.assertFalse(recomputed["cached"])
+        self.assertTrue(Path(recomputed["observations"][0]["image"]["path"]).is_file())
+        manifest_doc = json.loads(Path(recomputed["report"]["path"]).read_text())
+        manifest_doc["observations"][0]["scope"] = "tampered manifest"
+        Path(recomputed["report"]["path"]).write_text(json.dumps(manifest_doc))
+        changed_manifest = protocol.binding(Path(recomputed["report"]["path"]))
+        tampered_manifest = agent_api.dispatch(self.root, "inspect", {"report": changed_manifest["path"],
+            "sha256": changed_manifest["sha256"], "field": "/observations"})
+        tampered_camera = next(item["value"] for item in tampered_manifest["items"]
+                               if item["field"] == "/observations/0")
+        self.assertNotIn("image", tampered_camera)
+        self.assertEqual(tampered_manifest["previewCurrentness"]["status"], "stale")
+
+        old_step = step.read_bytes()
+        step.write_bytes(step.read_bytes() + b"stale")
+        stale = self.cli("preview", {"report": parent_ref["path"],
+            "sha256": parent_ref["sha256"], "requests": requests})
+        self.assertEqual(stale.returncode, 2)
+        self.assertIn("source STEP", stale.stdout + stale.stderr)
+        step.write_bytes(old_step)
+        source.write_text(source.read_text() + "# input expired\n")
+        expired = self.cli("preview", {"report": parent_ref["path"],
+            "sha256": parent_ref["sha256"], "requests": requests})
+        self.assertEqual(expired.returncode, 2)
+        self.assertIn("inputs are expired", expired.stdout + expired.stderr)
+
+    def test_rotated_asymmetric_brep_changes_camera_and_section_observations(self):
+        """Exercise real STEP loading, camera rendering, and BRep sections across rotation."""
+        from build123d import Box, Compound, Pos, Rot
+        from display_step import export_display_step
+
+        results = []
+        for label, rotation in (("base", 0), ("rotated", 90)):
+            root = self.root / label
+            root.mkdir()
+            source = root / "model.py"
+            source.write_text(f"# asymmetric semantic fixture rotated {rotation} degrees\n")
+            footprint = Box(12, 2, 2) + Pos(5, 3, 0) * Box(2, 6, 2)
+            shape = Rot(0, 0, rotation) * footprint
+            step = root / "assembly.step"
+            exported = export_display_step([("asymmetric-body", shape, {"baseColor": "#336699"})], step)
+            step_ref = protocol.binding(step)
+            step_ref["scene"] = exported["scene"]
+            source_ref = protocol.binding(source)
+            inputs = {"source": source_ref}
+            report_path = root / "parent.json"
+            report = {"schema": "a3d-draft-result/v2", "runId": label, "status": "draft",
+                      "source": source_ref, "taskInputBindings": inputs,
+                      "artifacts": {"step:display": step_ref}, "issues": []}
+            report_path.write_text(json.dumps(report))
+            report_ref = protocol.binding(report_path)
+            run = {"operation": "draft", "report": report_ref, "runId": label,
+                   "inputs": inputs, "outputs": report["artifacts"]}
+            agent_api.save(root, ".a3d-agent/state.json", {"schema": protocol.SCHEMA,
+                "latest": run, "runs": [run]})
+            preview = agent_api.dispatch(root, "preview", {"report": report_ref["path"],
+                "sha256": report_ref["sha256"], "requests": [
+                    {"kind": "camera", "view": "top", "size": 320},
+                    {"kind": "section", "id": "xy-mid", "plane": {
+                        "origin": [0, 0, 0], "normal": [0, 0, 1], "u": [1, 0, 0]}}]})
+            self.assertEqual([entry["kind"] for entry in preview["observations"]], ["camera", "section"])
+            self.assertTrue(all(Path(entry["image"]["path"]).is_file() for entry in preview["observations"]))
+            self.assertEqual(preview["observations"][1]["measurementSummary"]["status"], "material")
+            results.append(preview)
+
+        base_camera = results[0]["observations"][0]["image"]
+        rotated_camera = results[1]["observations"][0]["image"]
+        self.assertNotEqual(base_camera["sha256"], rotated_camera["sha256"])
+        base_section = results[0]["observations"][1]["measurementSummary"]["outer_envelope"]
+        rotated_section = results[1]["observations"][1]["measurementSummary"]["outer_envelope"]
+        self.assertAlmostEqual(base_section["width_u_mm"], 12, delta=0.2)
+        self.assertAlmostEqual(base_section["depth_v_mm"], 7, delta=0.2)
+        self.assertAlmostEqual(rotated_section["width_u_mm"], 7, delta=0.2)
+        self.assertAlmostEqual(rotated_section["depth_v_mm"], 12, delta=0.2)
+        # Expose a real generated image path for independent visual inspection.
+        self.test_preview_image_paths = [base_camera["path"], rotated_camera["path"]]
+
+    def test_preview_batch_loads_once_and_only_tessellates_camera_objects(self):
+        from types import SimpleNamespace
+        from PIL import Image, ImageDraw
+        import trimesh
+        import agent_preview
+        import display_step
+        import cpu_z_buffer
+        from PIL import ImageFont
+
+        test_image = Image.new("RGB", (320, 320), "white")
+        test_draw = ImageDraw.Draw(test_image)
+        test_font = ImageFont.load_default()
+        measure = lambda value: test_draw.textbbox((0, 0), value, font=test_font)[2]
+        scope_label = agent_preview._scope_label("camera", ["long-object-name-" * 40], ["hidden"] * 12, 320, measure)
+        self.assertIn("hidden 12", scope_label)
+        self.assertLessEqual(measure(scope_label), 308)
+
+        step = self.root / "fake.step"
+        step.write_text("fake STEP payload")
+        source = self.root / "model.py"
+        source.write_text("# source")
+        report_path = self.root / "parent.json"
+        source_ref = protocol.binding(source)
+        step_ref = protocol.binding(step)
+        report_path.write_text(json.dumps({"schema": "a3d-draft-result/v2", "runId": "mock-run",
+            "status": "draft", "source": source_ref, "taskInputBindings": {"source": source_ref},
+            "artifacts": {"step": step_ref}}))
+        parent_ref = protocol.binding(report_path)
+        shape = object()
+        loaded = [({"name": "body", "appearance": {"baseColor": "#7AA3C7"}}, shape)]
+        mesh = trimesh.creation.box()
+        mesh_rows = [("body", mesh, {"baseColor": "#7AA3C7"})]
+
+        def fake_section(_shape, _plane, *, label, preview):
+            Image.new("RGB", (32, 32), "white").save(preview)
+            return {"label": label, "status": "material", "outer_envelope": [1, 1],
+                    "material_island_count": 1, "hole_count": 0, "sum_material_area_mm2": 1.0}
+
+        request = [{"kind": "camera", "direction": [1, -2, 1], "up": [0, 0, 1], "size": 320},
+                   {"kind": "section", "plane": {"origin": [0, 0, 0],
+                    "normal": [0, 0, 1], "u": [1, 0, 0]}}]
+        stats = SimpleNamespace(triangles_input=len(mesh.faces), covered_pixels=100, elapsed_seconds=0.01)
+        fake_render = SimpleNamespace(image=Image.new("RGB", (320, 320), "white"), stats=stats)
+        with mock.patch.object(display_step, "load_step_objects", return_value=(loaded, {})) as load_spy, \
+             mock.patch.object(display_step, "mesh_step_objects", return_value=(mesh_rows, {})) as mesh_spy, \
+             mock.patch.object(cpu_z_buffer, "render_view", return_value=fake_render), \
+             mock.patch("brep_measurements.measure_section", side_effect=fake_section):
+            result = agent_api.dispatch(self.root, "preview", {"report": parent_ref["path"],
+                "sha256": parent_ref["sha256"], "requests": request})
+        self.assertEqual(load_spy.call_count, 1)
+        self.assertEqual(mesh_spy.call_count, 1)
+        self.assertEqual(len(result["observations"]), 2)
+
+        section_only = [{"kind": "section", "plane": request[1]["plane"]}]
+        with mock.patch.object(display_step, "load_step_objects", return_value=(loaded, {})) as load_spy, \
+             mock.patch.object(display_step, "mesh_step_objects", return_value=([], {})) as mesh_spy, \
+             mock.patch("brep_measurements.measure_section", side_effect=fake_section):
+            result = agent_api.dispatch(self.root, "preview", {"report": parent_ref["path"],
+                "sha256": parent_ref["sha256"], "requests": section_only})
+        self.assertEqual(load_spy.call_count, 1)
+        mesh_spy.assert_not_called()
+        self.assertEqual(result["observations"][0]["kind"], "section")
+
+        import agent_preview
+        huge = {"kind": "camera", "direction": [1.79e308, 1.79e308, 1.79e308],
+                "up": [-1.79e308, 1.79e308, 0], "size": 320}
+        normalized = agent_preview._normalize_request(huge, 0)
+        self.assertTrue(all(math.isfinite(component) for component in normalized["direction"] + normalized["up"]))
+        self.assertAlmostEqual(sum(component * component for component in normalized["direction"]), 1.0)
+        with self.assertRaisesRegex(ValueError, "nonzero"):
+            agent_preview._normalize_request({**huge, "direction": [0, 0, 0]}, 0)
+        with self.assertRaisesRegex(ValueError, "parallel"):
+            agent_preview._normalize_request({**huge, "direction": [0, 0, 1], "up": [0, 0, 1]}, 0)
+
+        oversized_batch = [{"kind": "camera", "view": "front", "size": 1280} for _ in range(4)]
+        with mock.patch.object(display_step, "load_step_objects") as load_spy:
+            with self.assertRaisesRegex(ValueError, "image budget"):
+                agent_api.dispatch(self.root, "preview", {"report": parent_ref["path"],
+                    "sha256": parent_ref["sha256"], "requests": oversized_batch})
+        load_spy.assert_not_called()
+
+        with mock.patch.object(display_step, "load_step_objects", return_value=(loaded, {})), \
+             mock.patch.object(display_step, "mesh_step_objects", return_value=(mesh_rows, {})), \
+             mock.patch.object(agent_preview, "triangle_count", return_value=agent_preview.DEFAULT_MAX_TRIANGLES + 1), \
+             mock.patch.object(cpu_z_buffer, "render_view") as render_spy:
+            with self.assertRaisesRegex(ValueError, "triangles"):
+                agent_api.dispatch(self.root, "preview", {"report": parent_ref["path"],
+                    "sha256": parent_ref["sha256"], "requests": [{"kind": "camera", "view": "side", "size": 320}]})
+        render_spy.assert_not_called()
+
+    def test_preview_rejects_tampered_scene_object_binding_before_step_load(self):
+        import display_step
+
+        step = self.root / "assembly.step"
+        step.write_text("bound STEP")
+        object_step = self.root / "body.step"
+        object_step.write_text("bound object")
+        source = self.root / "model.py"
+        source.write_text("# source")
+        source_ref = protocol.binding(source)
+        step_ref = protocol.binding(step)
+        scene = display_step.scene_path(step)
+        scene.write_text(json.dumps({"schema": display_step.SCHEMA, "step": step_ref,
+            "objects": [{"name": "body", "step": protocol.binding(object_step)}]}))
+        report_path = self.root / "parent.json"
+        report_path.write_text(json.dumps({"schema": "a3d-draft-result/v2", "runId": "scene-run",
+            "status": "draft", "source": source_ref, "taskInputBindings": {"source": source_ref},
+            "artifacts": {"step": step_ref}}))
+        report_ref = protocol.binding(report_path)
+        object_step.write_text("tampered object")
+        with mock.patch.object(display_step, "load_step_objects") as load_spy:
+            with self.assertRaisesRegex(ValueError, "scene or object binding is stale"):
+                agent_api.dispatch(self.root, "preview", {"report": report_ref["path"],
+                    "sha256": report_ref["sha256"], "requests": [{"kind": "camera", "view": "front"}]})
+        load_spy.assert_not_called()
+
+    def test_preview_cache_retention_is_bounded_and_only_prunes_owned_files(self):
+        import agent_preview
+
+        previews = self.root / ".a3d-agent" / "previews"
+        cache = previews / "cache"
+        previews.mkdir(parents=True, exist_ok=True)
+        unrelated = previews / "notes.json"
+        unrelated.write_text("user-owned")
+        unowned_key = "f" * 64
+        (previews / f"{unowned_key}.json").write_text(json.dumps({"schema": "user-data"}))
+        (cache / unowned_key).mkdir(parents=True, exist_ok=True)
+        (cache / unowned_key / "keep.txt").write_text("user-owned")
+        parent = {"path": "parent.json", "sha256": "a" * 64}
+        with mock.patch.object(agent_preview, "MAX_CACHE_BYTES", 1_000_000):
+            for index in range(33):
+                key = f"{index + 1:064x}"
+                manifest_path = previews / f"{key}.json"
+                cache_path = cache / key
+                cache_path.mkdir(parents=True, exist_ok=True)
+                image = cache_path / "observation-00.png"
+                image.write_bytes(b"x" * 64)
+                manifest = {"schema": agent_preview.MANIFEST_SCHEMA, "cacheKey": key, "observations": [
+                    {"image": {"path": str(image.resolve()), "sha256": "b" * 64}}]}
+                manifest["manifestSha256"] = agent_preview.sha256(agent_preview.encode(manifest).encode()).hexdigest()
+                manifest_path.parent.mkdir(parents=True, exist_ok=True)
+                manifest_path.write_text(json.dumps(manifest))
+                agent_preview._register_manifest(self.root, manifest_path, parent)
+
+        registrations = agent_api.state(self.root)["visualPreviews"]
+        self.assertEqual(len(registrations), agent_preview.MAX_REGISTERED_MANIFESTS)
+        self.assertFalse((previews / f"{1:064x}.json").exists())
+        self.assertFalse((cache / f"{1:064x}").exists())
+        self.assertTrue((previews / f"{33:064x}.json").exists())
+        self.assertEqual(unrelated.read_text(), "user-owned")
+        self.assertTrue((previews / f"{unowned_key}.json").exists())
+        self.assertEqual((cache / unowned_key / "keep.txt").read_text(), "user-owned")
+
+    def test_deep_workspace_single_preview_keeps_full_direct_image_binding(self):
+        from build123d import Box, export_step
+
+        root = self.root
+        for _ in range(4):
+            root = root / ("d" * 80)
+        root.mkdir(parents=True)
+        source = root / "model.py"
+        source.write_text("# bound input\n")
+        step = root / "part.step"
+        self.assertTrue(export_step(Box(8, 5, 3), step))
+        report_path = root / "parent.json"
+        inputs = {"source": protocol.binding(source)}
+        report = {"schema": "a3d-draft-result/v2", "runId": "deep-path-run", "status": "draft",
+                  "source": inputs["source"], "taskInputBindings": inputs,
+                  "artifacts": {"step": protocol.binding(step)}, "issues": []}
+        report_path.write_text(json.dumps(report))
+        report_ref = protocol.binding(report_path)
+        run = {"operation": "draft", "report": report_ref, "runId": report["runId"],
+               "inputs": inputs, "outputs": report["artifacts"]}
+        agent_api.save(root, ".a3d-agent/state.json", {"schema": protocol.SCHEMA,
+            "latest": run, "runs": [run]})
+
+        result = agent_api.dispatch(root, "preview", {"report": report_ref["path"],
+            "sha256": report_ref["sha256"], "requests": [{"kind": "camera", "view": "front", "size": 320}]})
+        image = result["observations"][0]["image"]
+        self.assertGreater(len(image["path"].encode()), 300)
+        self.assertTrue(Path(image["path"]).is_file())
+        self.assertEqual(image["sha256"], sha256(Path(image["path"]).read_bytes()).hexdigest())
+        self.assertLessEqual(protocol.wire_size(result), protocol.MAX_WIRE_BYTES)
 
 if __name__ == "__main__":
     unittest.main()

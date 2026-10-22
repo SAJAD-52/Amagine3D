@@ -39,7 +39,7 @@ DEFAULT_MAX_RESOLUTION = 1280
 DEFAULT_MAX_TRIANGLES = 500_000
 MAX_SUPERSAMPLE = 2
 CONTACT_VIEWS = ("isometric", "front", "side", "top", "bottom")
-SUPPORTED_VIEWS = CONTACT_VIEWS
+SUPPORTED_VIEWS = (*CONTACT_VIEWS, "back", "left")
 BACKGROUND = (255, 255, 255)
 DEFAULT_MATERIAL = (122, 163, 199)
 LIGHT = np.array((0.35, -0.55, 0.76), dtype=np.float64)
@@ -62,6 +62,8 @@ CAMERA_DIRECTIONS = {
     "side": _camera_direction(0.0, 0.0),
     "top": (0.0, 0.0, 1.0),
     "bottom": (0.0, 0.0, -1.0),
+    "back": _camera_direction(0.0, 90.0),
+    "left": _camera_direction(0.0, 180.0),
 }
 
 
@@ -226,16 +228,29 @@ def _validate_request(
         )
 
 
-def _camera_basis(view: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    if view not in CAMERA_DIRECTIONS:
-        raise ValueError(f"unsupported view {view!r}; choose from {SUPPORTED_VIEWS}")
-    eye = np.asarray(CAMERA_DIRECTIONS[view], dtype=np.float64)
+def _camera_basis(
+    view: str,
+    camera: tuple[Sequence[float], Sequence[float]] | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if camera is None:
+        if view not in CAMERA_DIRECTIONS:
+            raise ValueError(f"unsupported view {view!r}; choose from {SUPPORTED_VIEWS}")
+        direction, up_hint = CAMERA_DIRECTIONS[view], None
+    else:
+        direction, up_hint = camera
+    eye = np.asarray(direction, dtype=np.float64)
+    if eye.shape != (3,) or not np.isfinite(eye).all() or np.linalg.norm(eye) <= 1e-12:
+        raise ValueError("camera direction must be a finite nonzero 3-vector")
     eye /= np.linalg.norm(eye)
-    up_hint = (
-        np.array((0.0, 1.0, 0.0), dtype=np.float64)
-        if abs(float(eye[2])) > 0.95
-        else np.array((0.0, 0.0, 1.0), dtype=np.float64)
-    )
+    if up_hint is None:
+        up_hint = (np.array((0.0, 1.0, 0.0), dtype=np.float64)
+                   if abs(float(eye[2])) > 0.95 else np.array((0.0, 0.0, 1.0), dtype=np.float64))
+    else:
+        up_hint = np.asarray(up_hint, dtype=np.float64)
+        if up_hint.shape != (3,) or not np.isfinite(up_hint).all() or np.linalg.norm(up_hint) <= 1e-12:
+            raise ValueError("camera up must be a finite nonzero 3-vector")
+        if np.linalg.norm(np.cross(up_hint, eye)) <= 1e-10:
+            raise ValueError("camera up must not be parallel to camera direction")
     right = np.cross(up_hint, eye)
     right /= np.linalg.norm(right)
     up = np.cross(eye, right)
@@ -415,9 +430,12 @@ def _render_internal(
     pool: BufferPool,
     background: tuple[int, int, int],
     frame_bounds: tuple[np.ndarray, np.ndarray] | None = None,
+    camera: tuple[Sequence[float], Sequence[float]] | None = None,
+    target: Sequence[float] | None = None,
+    crop_bounds: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> ViewRender:
     started = time.perf_counter()
-    right, up, eye = _camera_basis(view)
+    right, up, eye = _camera_basis(view, camera)
     basis = np.column_stack((right, up, eye))
     bounds = np.asarray([item.mesh.bounds for item in meshes], dtype=np.float64)
     if frame_bounds is not None:
@@ -427,7 +445,19 @@ def _render_internal(
         if np.any(bounds[:, 0] < frame[0] - 1e-8) or np.any(bounds[:, 1] > frame[1] + 1e-8):
             raise ValueError("frame bounds must contain every rendered mesh")
         bounds = frame[None, :, :]
-    world_center = (bounds[:, 0].min(axis=0) + bounds[:, 1].max(axis=0)) / 2.0
+    if crop_bounds is not None:
+        crop = np.asarray(crop_bounds, dtype=np.float64)
+        if crop.shape != (2, 3) or not np.isfinite(crop).all() or np.any(crop[1] <= crop[0]):
+            raise ValueError("camera scope must be finite ordered 3D corners with positive extent")
+        if frame_bounds is not None:
+            raise ValueError("camera scope cannot be combined with comparison frame bounds")
+        bounds = crop[None, :, :]
+    if target is not None:
+        world_center = np.asarray(target, dtype=np.float64)
+        if world_center.shape != (3,) or not np.isfinite(world_center).all():
+            raise ValueError("camera target must be a finite 3-vector")
+    else:
+        world_center = (bounds[:, 0].min(axis=0) + bounds[:, 1].max(axis=0)) / 2.0
     camera_vertices = [
         np.einsum(
             "ij,jk->ik",
@@ -442,19 +472,23 @@ def _render_internal(
     camera_high = np.max(
         np.asarray([vertices.max(axis=0) for vertices in camera_vertices]), axis=0
     )
-    if frame_bounds is not None:
+    if frame_bounds is not None or crop_bounds is not None:
         # Both revisions use these same world-space corners. Never independently
         # recenter or rescale them: that would conceal size and placement edits.
         corners = np.asarray([
             (x, y, z)
-            for x in frame[:, 0] for y in frame[:, 1] for z in frame[:, 2]
+            for x in bounds[0, :, 0] for y in bounds[0, :, 1] for z in bounds[0, :, 2]
         ])
         projected_frame = (corners - world_center) @ basis
         camera_low, camera_high = projected_frame.min(axis=0), projected_frame.max(axis=0)
     screen_low = camera_low[:2]
     screen_high = camera_high[:2]
-    screen_center = (screen_low + screen_high) / 2.0
-    raw_span = screen_high - screen_low
+    if target is not None:
+        screen_center = np.zeros(2, dtype=np.float64)
+        raw_span = 2.0 * np.maximum(np.abs(screen_low), np.abs(screen_high))
+    else:
+        screen_center = (screen_low + screen_high) / 2.0
+        raw_span = screen_high - screen_low
     world_span = max(float((camera_high - camera_low).max()), 1e-9)
     span = np.maximum(raw_span, world_span * 1e-6)
     margin = 0.08
@@ -598,6 +632,9 @@ def render_view(
     pool: BufferPool | None = None,
     background: tuple[int, int, int] = BACKGROUND,
     frame_bounds: tuple[np.ndarray, np.ndarray] | None = None,
+    camera: tuple[Sequence[float], Sequence[float]] | None = None,
+    target: Sequence[float] | None = None,
+    crop_bounds: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> ViewRender:
     output_height = height if height is not None else width
     _validate_request(meshes, width, output_height, supersample, limits)
@@ -610,6 +647,9 @@ def render_view(
         render_pool,
         background,
         frame_bounds,
+        camera,
+        target,
+        crop_bounds,
     )
     if supersample == 1:
         return result

@@ -326,6 +326,7 @@ Usage:
 ${extraUsage}  a3d agent context
   a3d agent checkpoint '{"report":"RUN.json","sha256":"SHA","observations":["visual observation"],"todo":["next check"],"functionalReady":true}'
   a3d agent display '{"report":"RUN.json","sha256":"SHA"}' (retry derived preview only)
+  a3d agent preview --args-file PREVIEW_REQUEST.json (camera or exact BRep section from a bound STEP artifact)
   a3d agent design '{"action":"read","design":"model.a3d.json"}'
   a3d agent design --args-file DESIGN_EDITS.json (batched add/update/remove)
   a3d agent capabilities '{"designOps":["box","pocket","fillet"]}'
@@ -765,6 +766,16 @@ if (command === 'search') {
     },
     stdio: 'inherit',
   });
+  const previewOperation = command === 'agent' && args[0] === 'preview';
+  let previewTimedOut = false;
+  const previewTimer = previewOperation ? setTimeout(() => {
+    previewTimedOut = true;
+    console.error('a3d agent preview exceeded its 120-second operation deadline');
+    child.kill('SIGTERM');
+    const forceKill = setTimeout(() => child.kill(process.platform === 'win32' ? undefined : 'SIGKILL'), 5_000);
+    forceKill.unref();
+  }, 120_000) : undefined;
+  previewTimer?.unref();
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, () => child.kill(signal));
   }
@@ -773,6 +784,7 @@ if (command === 'search') {
     process.exitCode = 2;
   });
   child.once('exit', (code, signal) => {
-    process.exitCode = code ?? (signal ? 1 : 0);
+    if (previewTimer) clearTimeout(previewTimer);
+    process.exitCode = previewTimedOut ? 2 : code ?? (signal ? 1 : 0);
   });
 }

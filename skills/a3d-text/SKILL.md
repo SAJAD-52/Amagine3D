@@ -39,10 +39,11 @@ a3d agent build '{"phase":"draft","design":"model.a3d.json","revision":"REVISION
 a3d agent build '{"phase":"draft","source":"model_build.py"}'
 ```
 
-Use the returned image; query context/inspect after recovery or if missing. Use view_image only when visuals affect a decision. Label historical/diagnostic scope.
+Use returned images; query context/inspect only if recovering or missing. Call view_image when visuals affect a decision; label historical/diagnostic scope.
 If artifactStages reports display failure after passed cadExport, keep the bound STEP and use `a3d agent display '{"report":"RUN.json","sha256":"SHA"}'`; localize the issue before changing manufacturing geometry.
-At `awaiting-preview`, manufacturing has passed but PNG evidence is incomplete. Use context's `nextDisplay`; display retry verifies and reuses the original manufacturing proof without rerunning source or checks. Automatic pass still requires visual review.
-Record up to six consequential follow-up notes with `a3d agent checkpoint`. Viewing/noting need no extra build/checkpoint; complete required validation. Notes aren't acceptance or proof of review.
+At `awaiting-preview`, use context's `nextDisplay`: it reuses passed manufacturing proof without rerunning source or checks. A pass still needs visual review.
+Checkpoint up to six consequential notes only when useful. Notes aren't acceptance or proof of review; complete required validation.
+Use bound `a3d agent preview` for concrete scoped camera/BRep gaps; use returned image/scope, inspecting details only as needed. Local images never prove unobserved scope.
 A draft does not establish installation, final dimensions or printability. Repeat builds after changed inputs, new evidence or incomplete/failed attempts.
 
 ## Contract and compile

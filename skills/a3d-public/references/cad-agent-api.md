@@ -125,6 +125,49 @@ Task results are snapshotted under `.a3d-agent/runs` so a later compile cannot
 replace evidence referenced by a previous issue query. Legacy result files can
 also be inspected, but must be rereferenced if their bytes change.
 
+## On-demand visual observations
+
+Use `a3d agent preview` only when the current report-bound image leaves a concrete
+question unanswered. The operation reads an existing bound STEP artifact and
+creates a separate manifest; it does not execute source, change the latest CAD
+run, or update manufacturing acceptance. Bind the exact parent report by path
+and SHA-256. By default it selects `step:display`, then `step`, then
+`step:assembly`; if several other STEP artifacts remain ambiguous, specify
+`sourceArtifact` with the exact artifact key. `partIds` must match names in that
+STEP's bound scene descriptor.
+
+```json
+{
+  "report": ".a3d-agent/runs/RUN.json",
+  "sha256": "REPORT_SHA256",
+  "requests": [
+    {"kind": "camera", "view": "back", "partIds": ["housing"], "size": 640},
+    {"kind": "section", "partIds": ["housing"], "plane": {
+      "origin": [0, 0, 4], "normal": [0, 0, 1], "u": [1, 0, 0]}}
+  ]
+}
+```
+
+Each batch accepts up to four observations. Camera requests support named views
+(`isometric`, `front`, `side`, `top`, `bottom`, `back`, `left`) or a direction/up
+pair, optional target and a local `scope` box for view framing. The renderer
+clips its camera-space viewport and depth range to the projection of the box's
+corners. At arbitrary camera angles that is not strict clipping to the world
+axis-aligned box; selected geometry still occludes itself. Section requests intersect the exact selected BRep object; their
+rendered outlines are illustrative and measurements are retained in the
+manifest. The result returns per-image paths/hashes, selected and hidden objects,
+scope, measurement summaries, and an inspectable manifest report. Inspect the
+manifest with its returned report path/hash to read full measurements and verify
+per-image currentness. Parent/source expiry is an error; if only a newer run
+exists, the returned observation is historical and cannot establish current
+acceptance.
+
+Each request is limited to 1,280 pixels per camera axis, 64 selected objects,
+8 generated images, 4 million total rendered pixels and 500,000 triangles.
+Manifests are hash-bound, cached by request and source inputs, and exposed to the
+workbench only through a 32-entry state registry of validated bindings. Cache
+retention is capped at 256 MiB and prunes only files created by this feature.
+
 ## Context, capabilities and reuse
 
 Read context after compaction or continuation instead of repeating help and the

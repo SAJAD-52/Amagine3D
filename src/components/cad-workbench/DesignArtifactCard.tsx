@@ -52,7 +52,8 @@ export function DesignArtifactCard({ design, downloading, onDownload, ...listPro
   const printDownload = active.plates.length ? active.plates.flatMap((plate) =>
     plate.artifacts.find((artifact) => artifact.format === '3mf') ?? plate.artifacts[0] ?? [])
     : active.prints.filter((artifact) => artifact.format === (active.prints.some((file) => file.format === '3mf') ? '3mf' : 'stl'));
-  const files = active.artifacts.filter((artifact) => artifact.primary || artifact.partId || artifact.plateId);
+  const files = active.artifacts.filter((artifact) =>
+    artifact.primary || artifact.partId || artifact.plateId || artifact.purpose === 'observation-preview');
 
   return <article className={styles.designCard} aria-label={design.name || text('Design', '设计成果')}>
     <header className={styles.designHeader}>

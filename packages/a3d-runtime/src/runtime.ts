@@ -173,7 +173,7 @@ export function codexPrompt(
           '首稿先确认布局和功能关系，确定外形、内腔、组件占位和功能路径，只读所需合同。功能骨架稳定后立即声明独立 intent，用 validate 检查 design/revision/intent 并首次 compile；检查安装、紧固后再细化外观。apply 返回的 revision 用于下一次 build。恢复时直接消费 context.nextAction、context.nextInspect 和 context.nextDesignRead，复用同版本 capabilityReports；仅精读缺失字段并跟随 page.nextRequest。',
           '外观调整必须保留冻结 intent 的尺寸和功能目标；最终逐项核对文字验收与实际控制值。安装 witness 必须由原组件包络和完整实际路径推导，不通过缩小见证消除碰撞。',
           '项目 CLI 的 evidence gate 只拒绝已有完整成功证据且 source/intent/scene/profile 字节完全相同的 draft 或 compile。遇到 `a3d-admission-rejection/v1` 时读取 matchedResult，或实质修改输入后再运行；缺失、不完整或失败证据仍可重试，门控不决定阶段、几何、拓扑或修复策略。',
-          '优先使用本次 build/display 已返回的有效主图；仅在恢复任务或缺少图片入口时才用 context/inspect 查找。返回路径不代表图片已打开或已看懂，只有视觉证据会影响下一步时才调用原生 view_image 读取图片。当前 compile 已有主预览时直接审查它，不先重复 draft。历史图、诊断图和局部 scope 要说明状态与范围，不能据此扩展整件结论。仅显示生成失败时用 agent display 重试，不重跑制造检查；不因看图或记录观察额外触发构建或 checkpoint，合同和制造要求规定的验证仍照常完成。',
+          '优先使用本次 build/display 已返回的有效主图；仅在恢复任务或缺少图片入口时才用 context/inspect 查找。返回路径不代表图片已打开或已看懂，只有视觉证据会影响下一步时才调用原生 view_image 读取图片。当前 compile 已有主预览时直接审查它，不先重复 draft。当前图有具体盲区时，可用 `a3d agent preview` 针对已绑定 STEP/partIds 请求相机、局部范围或 BRep 剖面；确认其 manifest、对象范围与测量后再引用。历史图、诊断图和局部 scope 要说明状态与范围，不能据此扩展整件结论。仅显示生成失败时用 agent display 重试，不重跑制造检查；不因看图或记录观察额外触发构建或 checkpoint，合同和制造要求规定的验证仍照常完成。',
           '未经风险位置的专项 BRep/剖面检查，不把薄壁警告判为采样伪差。打印方向、支撑、桥接和免支撑结论必须引用当前 compile 的 `printOrientationEvidence` 与 mesh audit；其中的 rotateDegreesXYZ 才是 STL/3MF 的实际语义旋转。`rotated_xy_90deg=false` 只表示排版时没有额外床面 XY 四分之一转，不能覆盖 selected pose 或机器 warning。',
           '最终回复前读取本轮最新 `*_compile-result.json`，如实保留其中的 `status` 和 `visualReviewRequired`。可以报告实际完成的视觉审查及其范围，但这不改变编译器原始状态，也不证明制造或交付就绪；`pass=true` 只代表自动检查通过，不得据此声称可交付。',
           '在每个主要阶段或耗时工具调用前，用一句简短中文说明当前目标；只描述用户可理解的工作，不复述 shell 命令或内部推理。',

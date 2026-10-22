@@ -206,7 +206,7 @@ def _fallback_objects(path):
     return objects
 
 
-def load_step_objects(path):
+def load_step_objects(path, *, object_names=None):
     """Return identity-bound objects in semantic coordinates and provenance."""
     from export_audit import _geometry_errors, geometry_record
     path = Path(path).resolve()
@@ -248,13 +248,26 @@ def load_step_objects(path):
                                 "role": "display-only" if obj.get("role") == "component-reference" else obj.get("role", "unclassified")})
             break
         if records is None:
-            return _fallback_objects(path), provenance
+            fallback = _fallback_objects(path)
+            requested = None if object_names is None else set(object_names)
+            available = {record[0]["name"] for record in fallback}
+            if requested is not None and requested - available:
+                raise DisplayStepError("unknown STEP object name(s): " + ", ".join(sorted(requested - available)))
+            return ([record for record in fallback if requested is None or record[0]["name"] in requested], provenance)
     names = set()
+    requested = None if object_names is None else set(object_names)
+    if requested is not None and any(not isinstance(name, str) or not name for name in requested):
+        raise DisplayStepError("selected STEP object names must be nonempty strings")
+    available = {record.get("name") for record in records if isinstance(record, dict)}
+    if requested is not None and requested - available:
+        raise DisplayStepError("unknown STEP object name(s): " + ", ".join(sorted(requested - available)))
     for record in records:
         name = record["name"]
         if name in names:
             raise DisplayStepError("STEP display identities are duplicated")
         names.add(name)
+        if requested is not None and name not in requested:
+            continue
         object_path = _checked_ref(record["step"], path.parent)
         shape = import_step(object_path)
         shape.parent = None
@@ -267,9 +280,14 @@ def load_step_objects(path):
     return objects, provenance
 
 
-def step_meshes(path, *, normals=True):
+def step_meshes(path, *, normals=True, object_names=None):
+    objects, provenance = load_step_objects(path, object_names=object_names)
+    return mesh_step_objects(objects, provenance, normals=normals)
+
+
+def mesh_step_objects(objects, provenance, *, normals=True):
+    """Tessellate already loaded STEP objects, preserving object bindings."""
     from geometry_binding import shape_to_mesh
-    objects, provenance = load_step_objects(path)
     items = []
     geometry_cache = {}
     for record, shape in objects:
