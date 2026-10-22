@@ -100,7 +100,7 @@ def state(root: Path) -> dict:
 def capability_version() -> str:
     from capability_manifest import build_manifest
     runtime = [sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-               for name in ("agent_api.py", "agent_protocol.py", "agent_preview.py", "cpu_z_buffer.py", "brep_measurements.py", "design_language.py", "design_api.py", "design_build.py", "design_connections.py", "design_roles.py", "cad_stages.py", "cad_display_retry.py", "display_step.py", "display_normals.py",
+               for name in ("agent_api.py", "agent_protocol.py", "agent_preview.py", "preview_resource_limits.py", "cpu_z_buffer.py", "brep_measurements.py", "design_language.py", "design_api.py", "design_build.py", "design_connections.py", "design_roles.py", "cad_stages.py", "cad_display_retry.py", "display_step.py", "display_normals.py",
                             "intent_contract.py", "intent_revision.py", "cad_diagnostics.py")]
     return sha256(encode([build_manifest()["fingerprint"], *runtime]).encode()).hexdigest()
 
@@ -835,7 +835,7 @@ def build(root: Path, args: dict) -> dict:
 def inspect_report(root: Path, args: dict) -> dict:
     ref, document = read_report(root, args["report"], args.get("sha256"))
     if isinstance(document, dict) and document.get("schema") == "a3d-agent-preview/v1":
-        from agent_preview import _currentness
+        from agent_preview import _currentness, _source_dependencies_current
         projected = dict(document)
         observations = []
         image_states = []
@@ -872,7 +872,8 @@ def inspect_report(root: Path, args: dict) -> dict:
                 raise ValueError("parent report binding changed")
             status = _currentness(root, parent, parent_ref)
             source_binding = document.get("sourceArtifact", {}).get("binding", {})
-            status["sourceCurrent"] = _paths_current(root, {"sourceArtifact": source_binding})
+            status["sourceCurrent"] = (_paths_current(root, {"sourceArtifact": source_binding})
+                                        and _source_dependencies_current(root, document.get("sourceDependencyBindings")))
             status["historical"] = status["historical"] or not status["sourceCurrent"]
             status["imagesCurrent"] = all(item["current"] for item in image_states)
             status["images"] = image_states
@@ -1139,6 +1140,9 @@ def main() -> int:
             raise ValueError("use JSON arguments or --args-file, not both")
         raw_arguments = scoped(Path.cwd(), parsed.args_file).read_text(encoding="utf-8") if parsed.args_file else parsed.arguments
         request = {"operation": parsed.operation, "arguments": json.loads(raw_arguments)}
+        if request["operation"] == "preview":
+            from preview_resource_limits import install_preview_memory_limit
+            install_preview_memory_limit()
         result = dispatch(Path.cwd(), request["operation"], request.get("arguments", {}))
     except Exception as error:
         # Full exceptions belong in logs, while the tool gets a complete bounded

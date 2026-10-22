@@ -7,6 +7,7 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep 
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { runSearchCommand } from './a3d-search.mjs';
+import { armPreviewDeadline } from './preview-deadline.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const skillRoot = join(projectRoot, 'skills', 'a3d-text');
@@ -767,15 +768,7 @@ if (command === 'search') {
     stdio: 'inherit',
   });
   const previewOperation = command === 'agent' && args[0] === 'preview';
-  let previewTimedOut = false;
-  const previewTimer = previewOperation ? setTimeout(() => {
-    previewTimedOut = true;
-    console.error('a3d agent preview exceeded its 120-second operation deadline');
-    child.kill('SIGTERM');
-    const forceKill = setTimeout(() => child.kill(process.platform === 'win32' ? undefined : 'SIGKILL'), 5_000);
-    forceKill.unref();
-  }, 120_000) : undefined;
-  previewTimer?.unref();
+  const previewDeadline = previewOperation ? armPreviewDeadline(child) : undefined;
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, () => child.kill(signal));
   }
@@ -784,7 +777,7 @@ if (command === 'search') {
     process.exitCode = 2;
   });
   child.once('exit', (code, signal) => {
-    if (previewTimer) clearTimeout(previewTimer);
-    process.exitCode = previewTimedOut ? 2 : code ?? (signal ? 1 : 0);
+    previewDeadline?.clear();
+    process.exitCode = previewDeadline?.didTimeout() ? 2 : code ?? (signal ? 1 : 0);
   });
 }

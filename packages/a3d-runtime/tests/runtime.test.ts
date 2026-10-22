@@ -53,6 +53,10 @@ test('maps the existing model and reasoning environment to Codex', () => {
   assert.match(cadPrompt, /view_image/u);
   assert.match(cadPrompt, /优先使用本次 build\/display 已返回的有效主图/u);
   assert.match(cadPrompt, /仅在恢复任务或缺少图片入口时才用 context\/inspect/u);
+  assert.match(cadPrompt, /只有确实用 view_image 读取、且路径与 SHA-256 仍匹配当前 report/u);
+  assert.match(cadPrompt, /新 report\/哈希不继承旧图结论/u);
+  assert.match(cadPrompt, /不要把 Agent 检查称为人工检查/u);
+  assert.doesNotMatch(cadPrompt, /每次.*compile.*必须.*view_image/u);
   assert.match(cadPrompt, /不因看图或记录观察额外触发构建或 checkpoint/u);
   assert.match(cadPrompt, /布局和功能关系/u);
   assert.match(cadPrompt, /`printOrientationEvidence` 与 mesh audit/u);

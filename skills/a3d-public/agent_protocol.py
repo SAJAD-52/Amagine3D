@@ -26,8 +26,17 @@ def wire_size(value: Any) -> int:
     return len(encode({"output": encode(value)}).encode()) + 512
 
 
+def sha256_file(path: Path) -> str:
+    """Hash an artifact incrementally so large STEP bindings do not fill RAM."""
+    digest = sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def binding(path: Path) -> dict:
-    return {"path": str(path), "sha256": sha256(path.read_bytes()).hexdigest()}
+    return {"path": str(path), "sha256": sha256_file(path)}
 
 
 def scoped(root: Path, value: str, *, exists: bool = True) -> Path:

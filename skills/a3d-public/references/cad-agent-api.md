@@ -134,7 +134,11 @@ run, or update manufacturing acceptance. Bind the exact parent report by path
 and SHA-256. By default it selects `step:display`, then `step`, then
 `step:assembly`; if several other STEP artifacts remain ambiguous, specify
 `sourceArtifact` with the exact artifact key. `partIds` must match names in that
-STEP's bound scene descriptor.
+STEP's bound scene descriptor. The descriptor is used only when its path/hash is
+bound on the STEP artifact or is recovered from the exact matching run output
+for that parent report (same STEP path and SHA-256). An adjacent descriptor
+without that binding is rejected; choose the report-bound display STEP instead
+of relying on a sidecar that could name different child geometry.
 
 ```json
 {
@@ -164,6 +168,25 @@ acceptance.
 
 Each request is limited to 1,280 pixels per camera axis, 64 selected objects,
 8 generated images, 4 million total rendered pixels and 500,000 triangles.
+Before geometry loading, the preview checks the combined size of the parent STEP
+and unique selected scene-object STEP files against a 256 MiB input budget.
+Legacy object STEP files are used only when their CAD-stage manifest is bound
+by the parent report; its workspace path and hash are checked before parsing. An
+adjacent unbound stage does not change plain-STEP behavior and is not read.
+The CLI preloads its fixed CAD/rendering runtime, then gives the preview process
+up to a 2 GiB OS-enforced resource-growth budget while preserving stricter
+inherited limits: POSIX uses `RLIMIT_AS` (virtual address space, not a
+physical-RSS cap), while Windows uses a Job Object per-process commit limit. If
+the platform cannot install that boundary, preview fails instead of running
+without it. The CLI also ends preview after 120 seconds with a 5-second
+graceful-termination window before force-kill. Returned `limits` record the
+fixed baseline modules, baseline, requested budget, determinable available
+growth and installed OS limit. A manifest records the boundary of the process
+that generated its images as `generationProcessMemoryBoundary`; each preview
+response reports the current invocation's boundary as `processMemoryBoundary`,
+including cache hits. Windows reports available growth as unknown when an
+enclosing Job Object may impose a stricter cap. These limits bound observation work; the post-tessellation
+triangle check still rejects meshes over 500,000 triangles before rendering.
 Manifests are hash-bound, cached by request and source inputs, and exposed to the
 workbench only through a 32-entry state registry of validated bindings. Cache
 retention is capped at 256 MiB and prunes only files created by this feature.
