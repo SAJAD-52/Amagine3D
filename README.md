@@ -19,7 +19,7 @@
 <p>
   <img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="Apache 2.0" />
   <img src="https://img.shields.io/badge/Node.js-22.19.0%2B-339933.svg?logo=node.js&amp;logoColor=white" alt="Node.js 22.19.0+" />
-  <img src="https://img.shields.io/badge/Vite-7.3.6-646CFF.svg?logo=vite&amp;logoColor=white" alt="Vite 7.3.6" />
+  <img src="https://img.shields.io/badge/Vite-7.3.7-646CFF.svg?logo=vite&amp;logoColor=white" alt="Vite 7.3.7" />
   <img src="https://img.shields.io/badge/Runtime-build123d%20%2B%20OCP-5B5BD6.svg" alt="build123d + OCP" />
 </p>
 
